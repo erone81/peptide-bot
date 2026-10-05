@@ -30,23 +30,26 @@ async def start_handler(message: types.Message):
 async def vendor_tidetron(callback: types.CallbackQuery):
     await callback.answer()
 
-    await callback.message.answer_photo(FSInputFile(COVER_PATH))
-
     await callback.message.answer(
         "✅ <b>VERIFIED VENDOR</b>\n\n"
         "<b>Tidetron Peptides</b>\n"
         "Sales contact: <b>Liao</b>\n\n"
         "📍 <b>Warehouse:</b> China &amp; USA\n"
         "🚚 <b>Shipping:</b> 10–15 days (China) · 3–5 days (USA)\n"
-        "💳 <b>Payment:</b> Alibaba, PayPal, Apple Pay, Crypto &amp; more\n\n"
-        "After this you can continue chatting directly with the vendor.",
+        "💳 <b>Payment:</b> Alibaba, PayPal, Apple Pay, Crypto &amp; more",
         parse_mode="HTML",
     )
+
+    await callback.message.answer_photo(FSInputFile(COVER_PATH))
 
     await callback.message.answer_document(
         FSInputFile(CATALOG_PATH),
         caption="📄 <b>Full price list</b>",
         parse_mode="HTML",
+    )
+
+    await callback.message.answer(
+        "💬 You can now continue chatting directly with the vendor representative."
     )
 
 async def main():
