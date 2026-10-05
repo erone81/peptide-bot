@@ -13,9 +13,19 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 COVER_PATH = os.path.join(BASE_DIR, "TidetronCatalogCover.jpg")
 CATALOG_PATH = os.path.join(BASE_DIR, "Tidetron Peptide Catalog(3).pdf")
 
+VENDOR_USERNAME = "G3orgeL"
+
 def vendor_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Tidetron Peptides", callback_data="vendor_tidetron")]
+    ])
+
+def chat_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="💬 Continue with the vendor",
+            url=f"https://t.me/{VENDOR_USERNAME}",
+        )]
     ])
 
 async def send_tidetron(message: types.Message):
@@ -38,7 +48,8 @@ async def send_tidetron(message: types.Message):
     )
 
     await message.answer(
-        "💬 You can now continue chatting directly with the vendor representative."
+        "💬 You can now continue chatting directly with the vendor representative.",
+        reply_markup=chat_keyboard(),
     )
 
 @dp.message(CommandStart())
