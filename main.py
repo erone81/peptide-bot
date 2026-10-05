@@ -11,7 +11,7 @@ dp = Dispatcher()
 
 def vendor_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🧪 Test Vendor", callback_data="vendor_test")]
+        [InlineKeyboardButton(text="✅ Tidetron Peptides", callback_data="vendor_tidetron")]
     ])
 
 @dp.message(CommandStart())
@@ -22,16 +22,17 @@ async def start_handler(message: types.Message):
         parse_mode="HTML",
     )
 
-@dp.callback_query(F.data == "vendor_test")
-async def vendor_test(callback: types.CallbackQuery):
+@dp.callback_query(F.data == "vendor_tidetron")
+async def vendor_tidetron(callback: types.CallbackQuery):
     await callback.answer()
     await callback.message.answer(
-        "📋 <b>Price list</b>\n"
-        "The price list image will appear here soon.\n\n"
-        "📦 <b>Delivery and rules</b>\n"
-        "• Orders are packed in standard factory kits of 10\n"
-        "• After this message you continue chatting directly with the vendor\n"
-        "• Agree the final offer with the vendor before payment",
+        "✅ <b>VERIFIED VENDOR</b>\n\n"
+        "<b>Tidetron Peptides</b>\n"
+        "Sales contact: <b>Liao</b>\n\n"
+        "📍 <b>Warehouse:</b> China &amp; USA\n"
+        "🚚 <b>Shipping:</b> 10–15 days (China) · 3–5 days (USA)\n"
+        "💳 <b>Payment:</b> Alibaba, PayPal, Apple Pay, Crypto &amp; more\n\n"
+        "After this you can continue chatting directly with the vendor.",
         parse_mode="HTML",
     )
 
