@@ -1,7 +1,7 @@
 import asyncio
 import os
 from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandObject, CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -18,19 +18,8 @@ def vendor_keyboard():
         [InlineKeyboardButton(text="✅ Tidetron Peptides", callback_data="vendor_tidetron")]
     ])
 
-@dp.message(CommandStart())
-async def start_handler(message: types.Message):
+async def send_tidetron(message: types.Message):
     await message.answer(
-        "🛡️ <b>Verified Vendors</b>\n\nChoose a vendor:",
-        reply_markup=vendor_keyboard(),
-        parse_mode="HTML",
-    )
-
-@dp.callback_query(F.data == "vendor_tidetron")
-async def vendor_tidetron(callback: types.CallbackQuery):
-    await callback.answer()
-
-    await callback.message.answer(
         "✅ <b>VERIFIED VENDOR</b>\n\n"
         "<b>Tidetron Peptides</b>\n"
         "Sales contact: <b>Liao</b>\n\n"
@@ -40,17 +29,34 @@ async def vendor_tidetron(callback: types.CallbackQuery):
         parse_mode="HTML",
     )
 
-    await callback.message.answer_photo(FSInputFile(COVER_PATH))
+    await message.answer_photo(FSInputFile(COVER_PATH))
 
-    await callback.message.answer_document(
+    await message.answer_document(
         FSInputFile(CATALOG_PATH),
         caption="📄 <b>Full price list</b>",
         parse_mode="HTML",
     )
 
-    await callback.message.answer(
+    await message.answer(
         "💬 You can now continue chatting directly with the vendor representative."
     )
+
+@dp.message(CommandStart())
+async def start_handler(message: types.Message, command: CommandObject):
+    if command.args == "tidetron":
+        await send_tidetron(message)
+        return
+
+    await message.answer(
+        "🛡️ <b>Verified Vendors</b>\n\nChoose a vendor:",
+        reply_markup=vendor_keyboard(),
+        parse_mode="HTML",
+    )
+
+@dp.callback_query(F.data == "vendor_tidetron")
+async def vendor_tidetron(callback: types.CallbackQuery):
+    await callback.answer()
+    await send_tidetron(callback.message)
 
 async def main():
     print("Bot started...")
