@@ -12,13 +12,19 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+# Фиксирано ID на групата Tidetron Sales TPVH
+GROUP_ID = -1004387055068
+VENDOR_USERNAME = "g3orgel"
+
+# Настройка на постоянна папка (Railway Volume или локална директория)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = "/app/data" if os.path.exists("/app/data") else BASE_DIR
+
 COVER_PATH = os.path.join(BASE_DIR, "TidetronCatalogCover.jpg")
 CATALOG_PATH = os.path.join(BASE_DIR, "Tidetron Peptide Catalog(3).pdf")
-DATA_PATH = os.path.join(BASE_DIR, "routes.json")
+DATA_PATH = os.path.join(DATA_DIR, "routes.json")
 
-VENDOR_USERNAME = "g3orgel"
-group_id = None
+group_id = GROUP_ID
 buyer_topics = {}
 topic_buyers = {}
 buyer_names = {}
@@ -109,22 +115,25 @@ def buyer_offer_text(offer):
     return f"{text}\n\nTotal: {money(offer['total'])}"
 
 def save_data():
-    with open(DATA_PATH, "w", encoding="utf-8") as f:
-        json.dump(
-            {
-                "group_id": group_id,
-                "buyer_topics": buyer_topics,
-                "topic_buyers": topic_buyers,
-                "buyer_names": buyer_names,
-                "pending": pending,
-                "locked_offers": locked_offers,
-                "next_offer_number": next_offer_number,
-                "proof_topic_id": proof_topic_id,
-            },
-            f,
-            ensure_ascii=False,
-            indent=2
-        )
+    try:
+        with open(DATA_PATH, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "group_id": group_id,
+                    "buyer_topics": buyer_topics,
+                    "topic_buyers": topic_buyers,
+                    "buyer_names": buyer_names,
+                    "pending": pending,
+                    "locked_offers": locked_offers,
+                    "next_offer_number": next_offer_number,
+                    "proof_topic_id": proof_topic_id,
+                },
+                f,
+                ensure_ascii=False,
+                indent=2
+            )
+    except Exception as e:
+        print(f"Error saving data: {e}")
 
 def load_data():
     global group_id, buyer_topics, topic_buyers, buyer_names
@@ -134,7 +143,7 @@ def load_data():
     try:
         with open(DATA_PATH, encoding="utf-8") as f:
             data = json.load(f)
-        group_id = data.get("group_id")
+        group_id = data.get("group_id") or GROUP_ID
         buyer_topics = {int(k): v for k, v in data.get("buyer_topics", {}).items()}
         topic_buyers = {int(k): v for k, v in data.get("topic_buyers", {}).items()}
         buyer_names = {int(k): v for k, v in data.get("buyer_names", {}).items()}
@@ -218,29 +227,23 @@ async def vendor_tidetron(callback: types.CallbackQuery):
 async def register_vendor(message: types.Message):
     global group_id
     if message.chat.type == "private":
-        await message.answer("Open the Tidetron Sales TPVH group and write /vendor there.")
+        await message.answer("Write /vendor inside the group.")
         return
     username = (message.from_user.username or "").lower()
     if username != VENDOR_USERNAME.lower():
-        await message.answer("Only GeorgeL can connect this group.")
-        return
-    if not message.chat.is_forum:
-        await message.answer("Topics are not enabled. Turn on Topics first.")
+        await message.answer("Only GeorgeL can configure this group.")
         return
     group_id = message.chat.id
     save_data()
-    await message.answer("Connected.\n\nEach buyer will appear as a separate topic. Open the topic and just write.")
+    await message.answer("Connected.\n\nGroup ID is permanently registered.")
 
 @dp.message(Command("connect"))
 async def connect_topic(message: types.Message):
     global pending_connect_thread
     if message.chat.type == "private":
-        await message.answer("Open the buyer topic in Tidetron Sales TPVH and write /connect there.")
+        await message.answer("Write /connect inside a buyer topic.")
         return
     if (message.from_user.username or "").lower() != VENDOR_USERNAME.lower():
-        return
-    if group_id is None or message.chat.id != group_id:
-        await message.answer("First write /vendor in this group.")
         return
     thread_id = message.message_thread_id
     if not thread_id or thread_id == 1:
@@ -249,7 +252,7 @@ async def connect_topic(message: types.Message):
     pending_connect_thread = thread_id
     await message.answer("Waiting for the buyer.\n\nThe buyer must send any message to the bot.\nThen write the offer in this topic.")
 
-# 1. Вендорът натиска бутона "Make offer"
+# 1. Натискане на бутона Make Offer
 @dp.callback_query(F.data == "start_make_offer")
 async def make_offer_clicked(callback: types.CallbackQuery):
     await callback.answer()
@@ -369,7 +372,6 @@ async def from_group_media_and_text(message: types.Message):
         waiting_total[thread_id] = key
         save_data()
 
-        # ВИНАГИ пита за потвърждение на тотала преди изпращане
         hint = f" (detected: {money(detected)})" if detected else ""
         await bot.send_message(
             group_id,
@@ -381,7 +383,7 @@ async def from_group_media_and_text(message: types.Message):
         )
         return
 
-    # СТЪПКА 2: Вендорът въвежда сумата и офертата заминава
+    # СТЪПКА 2: Въвеждане на тотала
     waiting_key = waiting_total.get(thread_id)
     if waiting_key and message.text:
         total = parse_only_number(message.text)
@@ -400,7 +402,7 @@ async def from_group_media_and_text(message: types.Message):
         await message.reply("Do not write the commission in the message.")
         return
 
-    # СТЪПКА 3: Обикновени чат съобщения (въпроси, снимки, линкове)
+    # СТЪПКА 3: Обикновени съобщения (въпроси, снимки, линкове)
     try:
         header = "Tidetron Peptides:\n\n"
         if message.photo:
@@ -421,7 +423,7 @@ async def from_group_media_and_text(message: types.Message):
         await message.reply("The message was not delivered to the buyer.")
         return
 
-    # Поставя чист бутон "Make offer" за вендора
+    # Бутон Make offer под последното съобщение
     await clear_lock_button(thread_id)
     sent = await bot.send_message(
         group_id,
@@ -442,12 +444,10 @@ async def from_buyer_media_and_text(message: types.Message):
         return
     if (message.from_user.username or "").lower() == VENDOR_USERNAME.lower():
         return
-    if not group_id:
-        await message.answer("The vendor is not connected yet.")
-        return
 
     buyer_names[message.from_user.id] = buyer_label(message.from_user)
 
+    # Ръчно свързване чрез /connect
     if pending_connect_thread:
         thread_id = pending_connect_thread
         pending_connect_thread = None
@@ -485,7 +485,7 @@ async def from_buyer_media_and_text(message: types.Message):
 
 async def main():
     load_data()
-    print("Bot started...")
+    print(f"Bot started for Group: {group_id}...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
