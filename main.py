@@ -107,6 +107,11 @@ def make_offer_keyboard():
         [InlineKeyboardButton(text="📝 Make offer", callback_data="start_make_offer")]
     ])
 
+def paid_keyboard(key):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Deal Complete & Paid", callback_data=f"paid:{key}")]
+    ])
+
 def public_vendor_keyboard(vendor_key: str):
     v = VENDORS.get(vendor_key, {})
     label = v.get("button_text", "💬 Chat with Vendor 🟢")
@@ -398,9 +403,9 @@ async def make_offer_clicked(callback: types.CallbackQuery):
     waiting_offer_text[thread_id] = True
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(
-        "✍️ <b>Write the full offer text with price (USD):</b>\n"
+        "✍️ <b>Write the full offer text:</b>\n"
         "Include items, quantities, and total amount (e.g. 150).\n\n"
-        "请在此写下完整的报价明细及金额（USD）：",
+        "请在此写下完整的报价明细：",
         parse_mode="HTML"
     )
 
@@ -420,34 +425,76 @@ async def confirm_offer(callback: types.CallbackQuery):
     commission = commission_of(total)
     offer["status"] = "locked"
     offer["code"] = code
-    locked_offers.append({
+    
+    locked_item = {
         "code": code,
         "total": total,
         "commission": commission,
         "buyer_id": offer["buyer_id"],
         "text": offer["text"],
-    })
+        "paid": False
+    }
+    locked_offers.append(locked_item)
     save_data()
+    
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(f"Offer {code} is confirmed.\n\n{buyer_offer_text(offer)}\n\nThis is the final offer.")
     
     sales_chat_id = offer.get("chat_id", GROUP_ID)
+    
+    # Публикуваме съобщението в темата на клиента с бутон за плащане (който може да се натисне от вендора или админа)
     await bot.send_message(
         sales_chat_id,
-        f"Locked.\n\nOffer: {code}\nTotal: {money(total)}\nCommission due: {money(commission)}\n\nThe buyer does not see the commission.",
+        f"Locked.\n\nOffer: {code}\nTotal: {money(total)}\nCommission due: {money(commission)}\n\n"
+        f"⏳ Waiting for payment confirmation...",
         message_thread_id=offer["thread_id"],
+        reply_markup=paid_keyboard(key)
     )
+
+@dp.callback_query(F.data.startswith("paid:"))
+async def mark_offer_paid(callback: types.CallbackQuery):
+    key = callback.data.split(":", 1)[1]
+    offer = pending.get(key)
+    if not offer or offer.get("status") != "locked":
+        await callback.answer("This offer is not locked or already processed.", show_alert=True)
+        return
+
+    code = offer.get("code")
+    total = float(offer["total"])
+    commission = commission_of(total)
+    
+    # Маркираме като платено в общия списък
+    for lo in locked_offers:
+        if lo.get("code") == code:
+            lo["paid"] = True
+
+    save_data()
+    await callback.answer("Deal marked as Paid & Completed!")
+    await callback.message.edit_reply_markup(reply_markup=None)
+    
+    await callback.message.answer(
+        f"✅ <b>DEAL PAID & COMPLETED</b>\n"
+        f"Offer: {code}\nTotal: {money(total)}\n\n"
+        f"<i>Chat remains open for tracking/shipping inquiries.</i>",
+        parse_mode="HTML"
+    )
+
+    # Пращаме и в архивната темата "Locked offers"
     try:
+        sales_chat_id = offer.get("chat_id", GROUP_ID)
         thread = await proof_thread(sales_chat_id)
         who = buyer_names.get(offer["buyer_id"], "Unknown buyer")
         vendor_name = VENDORS.get(offer.get("vendor_key", "tidetron"), {}).get("chat_name", "Vendor")
         await bot.send_message(
             sales_chat_id,
-            f"LOCKED OFFER\n\nOffer: {code}\nVendor: {vendor_name}\nBuyer: {who}\nTotal: {money(total)}\nCommission due: {money(commission)}\n\n{offer['text']}",
+            f"🟢 <b>PAID &amp; COMPLETED OFFER</b>\n\n"
+            f"Offer: {code}\nVendor: {vendor_name}\nBuyer: {who}\n"
+            f"Total: {money(total)}\nCommission due: {money(commission)}\n\n{offer['text']}",
             message_thread_id=thread,
+            parse_mode="HTML"
         )
-    except Exception:
-        pass
+    except Exception as e:
+        print("Error sending to proof thread:", e)
 
 @dp.callback_query(F.data.startswith("no:"))
 async def change_offer(callback: types.CallbackQuery):
@@ -490,10 +537,9 @@ async def from_group_media_and_text(message: types.Message):
         replace_open_offers(buyer_id)
         key = secrets.token_hex(4)
 
-        # Ако е открита сума директно в текста, я взимаме автоматично в USD без ново питане!
         if detected is not None:
             pending[key] = {
-                "status": "waiting",
+                "status": "need_total",
                 "text": caption_text,
                 "total": detected,
                 "buyer_id": buyer_id,
@@ -501,12 +547,20 @@ async def from_group_media_and_text(message: types.Message):
                 "chat_id": message.chat.id,
                 "vendor_key": vendor_key
             }
+            waiting_total[thread_id] = key
             save_data()
-            await send_confirm_card(key, pending[key])
-            await message.answer(f"✅ Offer detected & formal card sent to buyer.\nTotal: {money(detected)}")
+
+            await bot.send_message(
+                message.chat.id,
+                f"💡 <b>Detected Total Amount: {money(detected)}</b>\n"
+                "Is this the correct amount?\n"
+                "• Type <b>yes</b> (or send the number) to confirm.\n"
+                "• Or type the correct amount in USD (e.g. 150):",
+                message_thread_id=thread_id,
+                parse_mode="HTML"
+            )
             return
         else:
-            # Ако не е открита, питаме за сума, но я третираме директно като USD
             pending[key] = {
                 "status": "need_total",
                 "text": caption_text,
@@ -521,8 +575,8 @@ async def from_group_media_and_text(message: types.Message):
 
             await bot.send_message(
                 message.chat.id,
-                "💰 <b>Enter Total Amount in USD:</b>\n"
-                "Please type the final total amount (e.g. 150):\n\n"
+                "💰 <b>Total amount not detected.</b>\n"
+                "Please type the final total amount in USD (e.g. 150):\n\n"
                 "请输入最终总金额（USD）：",
                 message_thread_id=thread_id,
                 parse_mode="HTML"
@@ -531,8 +585,16 @@ async def from_group_media_and_text(message: types.Message):
 
     waiting_key = waiting_total.get(thread_id)
     if waiting_key and message.text:
-        total = parse_only_number(message.text)
         offer = pending.get(waiting_key)
+        text_lower = message.text.strip().lower()
+        
+        if offer and offer.get("total") is not None and text_lower in ("yes", "да", "ok", "confirm"):
+            waiting_total.pop(thread_id, None)
+            await send_confirm_card(waiting_key, offer)
+            await message.answer(f"✅ Formal offer sent to buyer for confirmation.\nTotal: {money(offer['total'])}")
+            return
+            
+        total = parse_only_number(message.text)
         if total is not None and offer and offer.get("status") == "need_total":
             waiting_total.pop(thread_id, None)
             offer["total"] = total
