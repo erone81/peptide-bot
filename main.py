@@ -99,7 +99,7 @@ def vendor_list_keyboard():
 def confirm_keyboard(key):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Confirm", callback_data=f"yes:{key}")],
-        [InlineKeyboardButton(text="✏️️ Change something", callback_data=f"no:{key}")],
+        [InlineKeyboardButton(text="✏️ Change something", callback_data=f"no:{key}")],
     ])
 
 def make_offer_keyboard():
@@ -397,12 +397,10 @@ async def make_offer_clicked(callback: types.CallbackQuery):
     
     waiting_offer_text[thread_id] = True
     await callback.message.edit_reply_markup(reply_markup=None)
-    await bot.send_message(
-        callback.message.chat.id,
-        "✍️ <b>Step 1/2: Write the full offer text</b>\n"
-        "Include items, quantities, and delivery notes.\n\n"
-        "请在此写下完整的报价明细（产品、数量、地址等）：",
-        message_thread_id=thread_id,
+    await callback.message.answer(
+        "✍️ <b>Write the full offer text with price (USD):</b>\n"
+        "Include items, quantities, and total amount (e.g. 150).\n\n"
+        "请在此写下完整的报价明细及金额（USD）：",
         parse_mode="HTML"
     )
 
@@ -491,28 +489,45 @@ async def from_group_media_and_text(message: types.Message):
         detected = detect_total(caption_text)
         replace_open_offers(buyer_id)
         key = secrets.token_hex(4)
-        pending[key] = {
-            "status": "need_total",
-            "text": caption_text,
-            "total": None,
-            "buyer_id": buyer_id,
-            "thread_id": thread_id,
-            "chat_id": message.chat.id,
-            "vendor_key": vendor_key
-        }
-        waiting_total[thread_id] = key
-        save_data()
 
-        hint = f" (detected: {money(detected)})" if detected else ""
-        await bot.send_message(
-            message.chat.id,
-            f"💰 <b>Step 2/2: Confirm the Total Amount</b>{hint}\n"
-            "Please type the final total amount now (e.g. 150 or $150):\n\n"
-            "请确认最终总金额（例如输入：150 或 $150）：",
-            message_thread_id=thread_id,
-            parse_mode="HTML"
-        )
-        return
+        # Ако е открита сума директно в текста, я взимаме автоматично в USD без ново питане!
+        if detected is not None:
+            pending[key] = {
+                "status": "waiting",
+                "text": caption_text,
+                "total": detected,
+                "buyer_id": buyer_id,
+                "thread_id": thread_id,
+                "chat_id": message.chat.id,
+                "vendor_key": vendor_key
+            }
+            save_data()
+            await send_confirm_card(key, pending[key])
+            await message.answer(f"✅ Offer detected & formal card sent to buyer.\nTotal: {money(detected)}")
+            return
+        else:
+            # Ако не е открита, питаме за сума, но я третираме директно като USD
+            pending[key] = {
+                "status": "need_total",
+                "text": caption_text,
+                "total": None,
+                "buyer_id": buyer_id,
+                "thread_id": thread_id,
+                "chat_id": message.chat.id,
+                "vendor_key": vendor_key
+            }
+            waiting_total[thread_id] = key
+            save_data()
+
+            await bot.send_message(
+                message.chat.id,
+                "💰 <b>Enter Total Amount in USD:</b>\n"
+                "Please type the final total amount (e.g. 150):\n\n"
+                "请输入最终总金额（USD）：",
+                message_thread_id=thread_id,
+                parse_mode="HTML"
+            )
+            return
 
     waiting_key = waiting_total.get(thread_id)
     if waiting_key and message.text:
@@ -525,7 +540,7 @@ async def from_group_media_and_text(message: types.Message):
             await message.answer(f"✅ Formal offer sent to buyer for confirmation.\nTotal: {money(total)}")
             return
         else:
-            await message.reply("Please write a valid number (e.g. 150 or $150).\n请输入有效金额数字：")
+            await message.reply("Please write a valid number in USD (e.g. 150):\n请输入有效金额数字：")
             return
 
     if leaks_commission(caption_text):
