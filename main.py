@@ -27,6 +27,7 @@ locked_offers = []
 next_offer_number = 1001
 proof_topic_id = None
 lock_button_ids = {}
+waiting_offer_text = {}
 waiting_total = {}
 pending_connect_thread = None
 
@@ -45,10 +46,9 @@ def confirm_keyboard(key):
         [InlineKeyboardButton(text="✏️ Change something", callback_data=f"no:{key}")],
     ])
 
-def make_offer_keyboard(key, total):
-    button_text = f"🔒 Lock offer · {money(total)}" if total else "📝 Make offer"
+def make_offer_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=button_text, callback_data=f"lock:{key}")]
+        [InlineKeyboardButton(text="📝 Make offer", callback_data="start_make_offer")]
     ])
 
 def topic_name(user: types.User) -> str:
@@ -198,16 +198,6 @@ async def send_confirm_card(key, offer):
         reply_markup=confirm_keyboard(key),
     )
 
-async def ask_for_total(key, offer):
-    offer["status"] = "need_total"
-    waiting_total[offer["thread_id"]] = key
-    save_data()
-    await bot.send_message(
-        group_id,
-        "Write the total amount (e.g. 150 or $150).\n只写总价金额（例如：150 或 $150）：",
-        message_thread_id=offer["thread_id"],
-    )
-
 @dp.message(CommandStart())
 async def start_handler(message: types.Message, command: CommandObject):
     if command.args == "tidetron":
@@ -259,31 +249,26 @@ async def connect_topic(message: types.Message):
     pending_connect_thread = thread_id
     await message.answer("Waiting for the buyer.\n\nThe buyer must send any message to the bot.\nThen write the offer in this topic.")
 
-@dp.callback_query(F.data.startswith("lock:"))
-async def lock_offer_click(callback: types.CallbackQuery):
+# 1. Вендорът натиска бутона "Make offer"
+@dp.callback_query(F.data == "start_make_offer")
+async def make_offer_clicked(callback: types.CallbackQuery):
     await callback.answer()
-    if callback.message.chat.id != group_id:
+    thread_id = callback.message.message_thread_id
+    if not thread_id or thread_id not in topic_buyers:
         return
-    key = callback.data.split(":", 1)[1]
-    offer = pending.get(key)
-    if not offer or offer.get("status") != "draft":
-        await callback.answer("This offer is no longer active.", show_alert=True)
-        return
+    
+    waiting_offer_text[thread_id] = True
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await bot.send_message(
+        group_id,
+        "✍️ <b>Step 1/2: Write the full offer text</b>\n"
+        "Include items, quantities, and delivery notes.\n\n"
+        "请在此写下完整的报价明细（产品、数量、地址等）：",
+        message_thread_id=thread_id,
+        parse_mode="HTML"
+    )
 
-    if offer.get("total"):
-        try:
-            await send_confirm_card(key, offer)
-        except Exception:
-            offer["status"] = "draft"
-            save_data()
-            await callback.message.answer("The offer was not delivered to the buyer.")
-            return
-        await callback.message.edit_text(f"Sent for confirmation.\nTotal: {money(offer['total'])}")
-        return
-
-    await callback.message.edit_text("Waiting for the total number.")
-    await ask_for_total(key, offer)
-
+# Купувачът потвърждава офертата
 @dp.callback_query(F.data.startswith("yes:"))
 async def confirm_offer(callback: types.CallbackQuery):
     global next_offer_number
@@ -327,6 +312,7 @@ async def confirm_offer(callback: types.CallbackQuery):
     except Exception:
         pass
 
+# Купувачът иска промяна
 @dp.callback_query(F.data.startswith("no:"))
 async def change_offer(callback: types.CallbackQuery):
     key = callback.data.split(":", 1)[1]
@@ -362,7 +348,40 @@ async def from_group_media_and_text(message: types.Message):
     buyer_id = topic_buyers[thread_id]
     caption_text = message.caption or message.text or ""
 
-    # Ако очакваме въвеждане на сума
+    # СТЪПКА 1: Вендорът е натиснал Make Offer и изпраща описанието
+    if waiting_offer_text.get(thread_id):
+        waiting_offer_text.pop(thread_id, None)
+        
+        if leaks_commission(caption_text):
+            await message.reply("Do not write the commission in the offer. Send it again.")
+            return
+
+        detected = detect_total(caption_text)
+        replace_open_offers(buyer_id)
+        key = secrets.token_hex(4)
+        pending[key] = {
+            "status": "need_total",
+            "text": caption_text,
+            "total": None,
+            "buyer_id": buyer_id,
+            "thread_id": thread_id,
+        }
+        waiting_total[thread_id] = key
+        save_data()
+
+        # ВИНАГИ пита за потвърждение на тотала преди изпращане
+        hint = f" (detected: {money(detected)})" if detected else ""
+        await bot.send_message(
+            group_id,
+            f"💰 <b>Step 2/2: Confirm the Total Amount</b>{hint}\n"
+            "Please type the final total amount now (e.g. 150 or $150):\n\n"
+            "请确认最终总金额（例如输入：150 或 $150）：",
+            message_thread_id=thread_id,
+            parse_mode="HTML"
+        )
+        return
+
+    # СТЪПКА 2: Вендорът въвежда сумата и офертата заминава
     waiting_key = waiting_total.get(thread_id)
     if waiting_key and message.text:
         total = parse_only_number(message.text)
@@ -371,14 +390,17 @@ async def from_group_media_and_text(message: types.Message):
             waiting_total.pop(thread_id, None)
             offer["total"] = total
             await send_confirm_card(waiting_key, offer)
-            await message.answer(f"Sent for confirmation.\nTotal: {money(total)}")
+            await message.answer(f"✅ Formal offer sent to buyer for confirmation.\nTotal: {money(total)}")
+            return
+        else:
+            await message.reply("Please write a valid number (e.g. 150 or $150).\n请输入有效金额数字：")
             return
 
     if leaks_commission(caption_text):
-        await message.reply("Do not write the commission in the message/offer.")
+        await message.reply("Do not write the commission in the message.")
         return
 
-    # Доставка до купувача
+    # СТЪПКА 3: Обикновени чат съобщения (въпроси, снимки, линкове)
     try:
         header = "Tidetron Peptides:\n\n"
         if message.photo:
@@ -399,26 +421,13 @@ async def from_group_media_and_text(message: types.Message):
         await message.reply("The message was not delivered to the buyer.")
         return
 
-    # Изчиства стария бутон и слага нов
+    # Поставя чист бутон "Make offer" за вендора
     await clear_lock_button(thread_id)
-    replace_open_offers(buyer_id)
-    
-    total = detect_total(caption_text)
-    key = secrets.token_hex(4)
-    pending[key] = {
-        "status": "draft",
-        "text": caption_text,
-        "total": total,
-        "buyer_id": buyer_id,
-        "thread_id": thread_id,
-    }
-    save_data()
-    
     sent = await bot.send_message(
         group_id,
-        "Send as formal offer?\n作为正式报价发送？",
+        "Create an official offer card?\n创建正式报价单？",
         message_thread_id=thread_id,
-        reply_markup=make_offer_keyboard(key, total),
+        reply_markup=make_offer_keyboard(),
     )
     lock_button_ids[thread_id] = sent.message_id
 
