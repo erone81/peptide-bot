@@ -16,7 +16,6 @@ dp = Dispatcher()
 GROUP_ID = -1004387055068
 VENDOR_USERNAME = "g3orgel"
 
-# Настройка на постоянна папка (Railway Volume или локална директория)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = "/app/data" if os.path.exists("/app/data") else BASE_DIR
 
@@ -57,6 +56,15 @@ def make_offer_keyboard():
         [InlineKeyboardButton(text="📝 Make offer", callback_data="start_make_offer")]
     ])
 
+# Бутон за публичната визитка в групата
+def public_vendor_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="💬 Отвори Tidetron Peptides / Chat",
+            url="https://t.me/TrustedPeptideVendorsBot?start=tidetron"
+        )]
+    ])
+
 def topic_name(user: types.User) -> str:
     who = user.username or user.full_name or "Buyer"
     return f"Buyer · {who}"[:120]
@@ -69,7 +77,7 @@ def commission_of(total):
 
 def clean_number(raw):
     text = (raw or "").strip().replace(" ", "")
-    if re.fullmatch(r"[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,2})?", text):
+    if re.fullmatch(r"[0-9]{1,3}(?: mechanical[0-9]{3})+(?:\.[0-9]{1,2})?", text):
         text = text.replace(",", "")
     elif re.fullmatch(r"[0-9]+,[0-9]{1,2}", text):
         text = text.replace(",", ".")
@@ -93,7 +101,6 @@ def detect_total(text):
     found = re.findall(PRICE_REGEX, text)
     if found:
         return clean_number(found[-1])
-    
     standalone = re.findall(r"(?i)(?:^\s*\$?\s*([0-9]+(?:\.[0-9]{1,2})?)\s*(?:\$|usd)?\s*$)", text, re.MULTILINE)
     if standalone:
         return clean_number(standalone[-1])
@@ -223,6 +230,45 @@ async def vendor_tidetron(callback: types.CallbackQuery):
     await callback.answer()
     await send_tidetron(callback.message)
 
+# Команда за публикуване на визитката в темата Verified Vendors
+@dp.message(Command("post_vendor"))
+async def post_vendor_card(message: types.Message):
+    username = (message.from_user.username or "").lower()
+    if username != VENDOR_USERNAME.lower():
+        return
+    
+    caption_text = (
+        "✅ <b>Tidetron Peptides</b>\n"
+        "<i>Verified Vendor</i>\n\n"
+        "📍 <b>Warehouse:</b> China &amp; USA\n"
+        "🚚 <b>Shipping:</b> 10–15 days (China) · 3–5 days (USA)\n"
+        "💳 <b>Payment:</b> Alibaba, PayPal, Apple Pay, Crypto &amp; more\n\n"
+        "👇 <i>Натиснете бутона отдолу, за да отворите каталога и чата:</i>"
+    )
+    
+    thread_id = message.message_thread_id
+    if os.path.exists(COVER_PATH):
+        await bot.send_photo(
+            message.chat.id,
+            FSInputFile(COVER_PATH),
+            caption=caption_text,
+            reply_markup=public_vendor_keyboard(),
+            parse_mode="HTML",
+            message_thread_id=thread_id
+        )
+    else:
+        await bot.send_message(
+            message.chat.id,
+            caption_text,
+            reply_markup=public_vendor_keyboard(),
+            parse_mode="HTML",
+            message_thread_id=thread_id
+        )
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
 @dp.message(Command("vendor"))
 async def register_vendor(message: types.Message):
     global group_id
@@ -345,7 +391,6 @@ async def from_group_media_and_text(message: types.Message):
     if not thread_id or thread_id == 1:
         return
     if thread_id not in topic_buyers:
-        await message.reply("This topic is not linked. Write /connect here.")
         return
 
     buyer_id = topic_buyers[thread_id]
@@ -402,7 +447,7 @@ async def from_group_media_and_text(message: types.Message):
         await message.reply("Do not write the commission in the message.")
         return
 
-    # СТЪПКА 3: Обикновени съобщения (въпроси, снимки, линкове)
+    # СТЪПКА 3: Обикновени съобщения
     try:
         header = "Tidetron Peptides:\n\n"
         if message.photo:
@@ -423,7 +468,6 @@ async def from_group_media_and_text(message: types.Message):
         await message.reply("The message was not delivered to the buyer.")
         return
 
-    # Бутон Make offer под последното съобщение
     await clear_lock_button(thread_id)
     sent = await bot.send_message(
         group_id,
@@ -447,7 +491,6 @@ async def from_buyer_media_and_text(message: types.Message):
 
     buyer_names[message.from_user.id] = buyer_label(message.from_user)
 
-    # Ръчно свързване чрез /connect
     if pending_connect_thread:
         thread_id = pending_connect_thread
         pending_connect_thread = None
