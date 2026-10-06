@@ -12,21 +12,54 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ID на работната група за поръчки Tidetron Sales TPVH
-GROUP_ID = -1004387055068
-VENDOR_USERNAME = "g3orgel"
-
+ADMIN_USERNAME = "g3orgel"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = "/app/data" if os.path.exists("/app/data") else BASE_DIR
-
-HORIZONTAL_BANNER_PATH = os.path.join(BASE_DIR, "TidetronCatalogCoverHorizontal.jpg")
-COVER_PATH = os.path.join(BASE_DIR, "TidetronCatalogCover.jpg")
-CATALOG_PATH = os.path.join(BASE_DIR, "Tidetron Peptide Catalog(3).pdf")
 DATA_PATH = os.path.join(DATA_DIR, "routes.json")
 
-group_id = GROUP_ID
+# ==========================================
+# КОНФИГУРАЦИЯ НА ВЕНДОРИТЕ
+# За нов вендор просто се добавя нов блок тук!
+# ==========================================
+VENDORS = {
+    "tidetron": {
+        "name": "1. TIDETRON PEPTIDES",
+        "chat_name": "TIDETRON PEPTIDES",
+        "sales_group_id": -1004387055068,  # Търговската група за чат с клиента
+        "banner_path": os.path.join(BASE_DIR, "TidetronCatalogCoverHorizontal.jpg"),
+        "catalog_path": os.path.join(BASE_DIR, "Tidetron Peptide Catalog(3).pdf"),
+        "button_text": "💬 Chat with Tidetron",
+        "post_caption": (
+            "<b>1. TIDETRON PEPTIDES</b>\n"
+            "✅ <b>Verified Vendor</b>\n\n"
+            "📍 <b>Warehouses:</b> China &amp; USA\n"
+            "🚚 <b>Shipping:</b> 10–15 business days (Global) · 3–5 days (USA Domestic)\n"
+            "💳 <b>Payment:</b> Alibaba Trade Assurance, PayPal, Apple Pay, Crypto, Wire Transfer\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "🛡️ <b>COMPREHENSIVE BUYER GUARANTEE:</b>\n\n"
+            "📦 <b>100% Guaranteed Delivery &amp; DDP Customs</b>\n"
+            "All customs clearance, import tariffs, and duties are entirely handled and prepaid by the vendor (Delivered Duty Paid). Zero surprise fees for the recipient.\n\n"
+            "🔄 <b>Full Reship Policy</b>\n"
+            "In the rare event of transit damage, loss, or customs seizure, your entire order is reshipped immediately free of charge at the vendor’s expense.\n\n"
+            "🧪 <b>Blind Lab Testing &amp; Quality Shield</b>\n"
+            "Every batch is produced under cGMP compliance. If an independent accredited 3rd-party lab test (Janoshik or MZ Biolabs) reveals sub-standard purity (&lt;99%) or incorrect quantity:\n"
+            "• 100% refund of the product value\n"
+            "• 100% reimbursement of the testing laboratory fee"
+        ),
+        "chat_card": (
+            "<b>TIDETRON PEPTIDES</b>\n"
+            "✅ <b>Verified Vendor</b>\n\n"
+            "📍 <b>Warehouse:</b> China &amp; USA\n"
+            "🚚 <b>Shipping:</b> 10–15 days (China) · 3–5 days (USA)\n"
+            "💳 <b>Payment:</b> Alibaba, PayPal, Apple Pay, Crypto &amp; more"
+        )
+    }
+}
+
 buyer_topics = {}
 topic_buyers = {}
+topic_vendors = {}
+buyer_active_vendor = {}
 buyer_names = {}
 pending = {}
 locked_offers = []
@@ -41,10 +74,11 @@ PRICE_REGEX = (
     r"(?i)(?:total|amount|price|final|sum|cost|pay|合计|总计|总价|金额|最终价)\s*[:：]?\s*\$?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)"
 )
 
-def vendor_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Tidetron Peptides", callback_data="vendor_tidetron")]
-    ])
+def vendor_list_keyboard():
+    buttons = []
+    for key, data in VENDORS.items():
+        buttons.append([InlineKeyboardButton(text=f"✅ {data['chat_name']}", callback_data=f"open_vendor:{key}")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def confirm_keyboard(key):
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -57,11 +91,13 @@ def make_offer_keyboard():
         [InlineKeyboardButton(text="📝 Make offer", callback_data="start_make_offer")]
     ])
 
-def public_vendor_keyboard():
+def public_vendor_keyboard(vendor_key: str):
+    v = VENDORS.get(vendor_key, {})
+    label = v.get("button_text", "💬 Chat with Vendor")
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="💬 Chat with Tidetron",
-            url="https://t.me/TrustedPeptideVendorsBot?start=tidetron"
+            text=label,
+            url=f"https://t.me/TrustedPeptideVendorsBot?start={vendor_key}"
         )]
     ])
 
@@ -126,9 +162,10 @@ def save_data():
         with open(DATA_PATH, "w", encoding="utf-8") as f:
             json.dump(
                 {
-                    "group_id": group_id,
                     "buyer_topics": buyer_topics,
                     "topic_buyers": topic_buyers,
+                    "topic_vendors": topic_vendors,
+                    "buyer_active_vendor": buyer_active_vendor,
                     "buyer_names": buyer_names,
                     "pending": pending,
                     "locked_offers": locked_offers,
@@ -143,16 +180,17 @@ def save_data():
         print(f"Error saving data: {e}")
 
 def load_data():
-    global group_id, buyer_topics, topic_buyers, buyer_names
+    global buyer_topics, topic_buyers, topic_vendors, buyer_active_vendor, buyer_names
     global pending, locked_offers, next_offer_number, proof_topic_id
     if not os.path.exists(DATA_PATH):
         return
     try:
         with open(DATA_PATH, encoding="utf-8") as f:
             data = json.load(f)
-        group_id = data.get("group_id") or GROUP_ID
         buyer_topics = {int(k): v for k, v in data.get("buyer_topics", {}).items()}
         topic_buyers = {int(k): v for k, v in data.get("topic_buyers", {}).items()}
+        topic_vendors = {int(k): v for k, v in data.get("topic_vendors", {}).items()}
+        buyer_active_vendor = {int(k): v for k, v in data.get("buyer_active_vendor", {}).items()}
         buyer_names = {int(k): v for k, v in data.get("buyer_names", {}).items()}
         pending = data.get("pending", {})
         locked_offers = data.get("locked_offers", [])
@@ -166,26 +204,21 @@ def replace_open_offers(buyer_id):
         if offer.get("buyer_id") == buyer_id and offer.get("status") in ("draft", "need_total", "waiting"):
             offer["status"] = "replaced"
 
-# Представяне на вендора вътре в чата с новата структура и икони
-async def send_tidetron(message: types.Message):
-    card_text = (
-        "<b>TIDETRON PEPTIDES</b>\n"
-        "✅ <b>Verified Vendor</b>\n\n"
-        "📍 <b>Warehouse:</b> China &amp; USA\n"
-        "🚚 <b>Shipping:</b> 10–15 days (China) · 3–5 days (USA)\n"
-        "💳 <b>Payment:</b> Alibaba, PayPal, Apple Pay, Crypto &amp; more"
-    )
-    await message.answer(card_text, parse_mode="HTML")
+async def send_vendor_welcome(message: types.Message, vendor_key: str):
+    v = VENDORS.get(vendor_key)
+    if not v:
+        return
+    buyer_active_vendor[message.chat.id] = vendor_key
+    save_data()
 
-    # Използва се хоризонталният банер като корица
-    banner_file = HORIZONTAL_BANNER_PATH if os.path.exists(HORIZONTAL_BANNER_PATH) else COVER_PATH
-    if os.path.exists(banner_file):
-        await message.answer_photo(FSInputFile(banner_file))
+    await message.answer(v["chat_card"], parse_mode="HTML")
 
-    # Изпращане на каталога с цветна икона за пари/златен долар
-    if os.path.exists(CATALOG_PATH):
+    if os.path.exists(v["banner_path"]):
+        await message.answer_photo(FSInputFile(v["banner_path"]))
+
+    if os.path.exists(v["catalog_path"]):
         await message.answer_document(
-            FSInputFile(CATALOG_PATH),
+            FSInputFile(v["catalog_path"]),
             caption="💰 <b>Full Price List</b>",
             parse_mode="HTML",
         )
@@ -195,20 +228,20 @@ async def send_tidetron(message: types.Message):
         parse_mode="HTML"
     )
 
-async def proof_thread():
+async def proof_thread(sales_group_id):
     global proof_topic_id
     if proof_topic_id:
         return proof_topic_id
-    topic = await bot.create_forum_topic(group_id, "Locked offers")
+    topic = await bot.create_forum_topic(sales_group_id, "Locked offers")
     proof_topic_id = topic.message_thread_id
     save_data()
     return proof_topic_id
 
-async def clear_lock_button(thread_id):
+async def clear_lock_button(chat_id, thread_id):
     message_id = lock_button_ids.pop(thread_id, None)
-    if message_id and group_id:
+    if message_id:
         try:
-            await bot.delete_message(group_id, message_id)
+            await bot.delete_message(chat_id, message_id)
         except Exception:
             pass
 
@@ -225,49 +258,87 @@ async def send_confirm_card(key, offer):
 
 @dp.message(CommandStart())
 async def start_handler(message: types.Message, command: CommandObject):
-    if command.args == "tidetron":
-        await send_tidetron(message)
+    arg = (command.args or "").lower()
+    if arg in VENDORS:
+        await send_vendor_welcome(message, arg)
         return
     await message.answer(
-        "🛡️ <b>Verified Vendors</b>\n\nChoose a vendor:",
-        reply_markup=vendor_keyboard(),
+        "🛡️ <b>Verified Vendors</b>\n\nChoose a vendor below to start chatting directly:",
+        reply_markup=vendor_list_keyboard(),
         parse_mode="HTML",
     )
 
-@dp.callback_query(F.data == "vendor_tidetron")
-async def vendor_tidetron(callback: types.CallbackQuery):
+@dp.callback_query(F.data.startswith("open_vendor:"))
+async def open_vendor_callback(callback: types.CallbackQuery):
     await callback.answer()
-    await send_tidetron(callback.message)
+    vendor_key = callback.data.split(":", 1)[1]
+    await send_vendor_welcome(callback.message, vendor_key)
 
-@dp.message(Command("post_vendor"))
-async def post_vendor_card(message: types.Message):
+# Публикуване на главния въвеждащ текст за директорията
+@dp.message(Command("post_directory_info"))
+async def post_directory_info_handler(message: types.Message):
     username = (message.from_user.username or "").lower()
-    if username != VENDOR_USERNAME.lower():
+    if username != ADMIN_USERNAME.lower():
         return
     
-    caption_text = (
-        "<b>1. TIDETRON PEPTIDES</b>\n"
-        "✅ Verified Vendor"
+    text = (
+        "🛡️ <b>VERIFIED VENDORS DIRECTORY</b>\n\n"
+        "Here you will find rigorously vetted and continuously monitored peptide manufacturers. Every supplier listed meets our strict standards for quality, reliability, and secure fulfillment.\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "📌 <b>HOW TO GET STARTED:</b>\n\n"
+        "<b>1️⃣ Select a Vendor</b>\n"
+        "Browse our verified partners below and review their capabilities and terms.\n\n"
+        "<b>2️⃣ Open Direct Chat</b>\n"
+        "Tap the button beneath each vendor profile to launch an official, secure session.\n\n"
+        "<b>3️⃣ Review Catalog &amp; Policies</b>\n"
+        "Receive the complete batch price list, warehouse stock, and delivery guidelines automatically.\n\n"
+        "<b>4️⃣ Inquire &amp; Order</b>\n"
+        "Discuss orders, confirm custom quantities, and complete transactions directly with the vendor team.\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "🔒 <i>Zero-compromise vetting. Only manufacturers maintaining an unblemished track record and verified lab compliance are listed here.</i>"
     )
+    try:
+        await bot.send_message(
+            message.chat.id,
+            text,
+            message_thread_id=message.message_thread_id,
+            parse_mode="HTML"
+        )
+        await message.delete()
+    except Exception as e:
+        print("Error posting directory info:", e)
+
+# Публикуване на визитка с пълните гаранции за определен вендор (по подразбиране tidetron)
+@dp.message(Command("post_vendor"))
+async def post_vendor_card(message: types.Message, command: CommandObject):
+    username = (message.from_user.username or "").lower()
+    if username != ADMIN_USERNAME.lower():
+        return
     
+    vendor_key = (command.args or "tidetron").strip().lower()
+    v = VENDORS.get(vendor_key)
+    if not v:
+        await message.reply(f"Vendor '{vendor_key}' not found. Available: {', '.join(VENDORS.keys())}")
+        return
+
+    banner_file = v["banner_path"]
     thread_id = message.message_thread_id
-    banner_file = HORIZONTAL_BANNER_PATH if os.path.exists(HORIZONTAL_BANNER_PATH) else COVER_PATH
-    
+
     try:
         if os.path.exists(banner_file):
             await bot.send_photo(
                 message.chat.id,
                 FSInputFile(banner_file),
-                caption=caption_text,
-                reply_markup=public_vendor_keyboard(),
+                caption=v["post_caption"],
+                reply_markup=public_vendor_keyboard(vendor_key),
                 parse_mode="HTML",
                 message_thread_id=thread_id
             )
         else:
             await bot.send_message(
                 message.chat.id,
-                caption_text,
-                reply_markup=public_vendor_keyboard(),
+                v["post_caption"],
+                reply_markup=public_vendor_keyboard(vendor_key),
                 parse_mode="HTML",
                 message_thread_id=thread_id
             )
@@ -275,26 +346,12 @@ async def post_vendor_card(message: types.Message):
     except Exception as e:
         print("Error posting vendor card:", e)
 
-@dp.message(Command("vendor"))
-async def register_vendor(message: types.Message):
-    global group_id
-    if message.chat.type == "private":
-        await message.answer("Write /vendor inside the sales group.")
-        return
-    username = (message.from_user.username or "").lower()
-    if username != VENDOR_USERNAME.lower():
-        return
-    group_id = message.chat.id
-    save_data()
-    await message.answer("Connected.\n\nSales Group ID is permanently registered.")
-
 @dp.message(Command("connect"))
 async def connect_topic(message: types.Message):
     global pending_connect_thread
     if message.chat.type == "private":
-        await message.answer("Write /connect inside a buyer topic.")
         return
-    if (message.from_user.username or "").lower() != VENDOR_USERNAME.lower():
+    if (message.from_user.username or "").lower() != ADMIN_USERNAME.lower():
         return
     thread_id = message.message_thread_id
     if not thread_id or thread_id == 1:
@@ -313,7 +370,7 @@ async def make_offer_clicked(callback: types.CallbackQuery):
     waiting_offer_text[thread_id] = True
     await callback.message.edit_reply_markup(reply_markup=None)
     await bot.send_message(
-        group_id,
+        callback.message.chat.id,
         "✍️ <b>Step 1/2: Write the full offer text</b>\n"
         "Include items, quantities, and delivery notes.\n\n"
         "请在此写下完整的报价明细（产品、数量、地址等）：",
@@ -348,17 +405,19 @@ async def confirm_offer(callback: types.CallbackQuery):
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(f"Offer {code} is confirmed.\n\n{buyer_offer_text(offer)}\n\nThis is the final offer.")
     
+    sales_chat_id = offer["chat_id"]
     await bot.send_message(
-        group_id,
+        sales_chat_id,
         f"Locked.\n\nOffer: {code}\nTotal: {money(total)}\nCommission due: {money(commission)}\n\nThe buyer does not see the commission.",
         message_thread_id=offer["thread_id"],
     )
     try:
-        thread = await proof_thread()
+        thread = await proof_thread(sales_chat_id)
         who = buyer_names.get(offer["buyer_id"], "Unknown buyer")
+        vendor_name = VENDORS.get(offer.get("vendor_key", "tidetron"), {}).get("chat_name", "Vendor")
         await bot.send_message(
-            group_id,
-            f"LOCKED OFFER\n\nOffer: {code}\nVendor: Tidetron Peptides\nBuyer: {who}\nTotal: {money(total)}\nCommission due: {money(commission)}\n\n{offer['text']}",
+            sales_chat_id,
+            f"LOCKED OFFER\n\nOffer: {code}\nVendor: {vendor_name}\nBuyer: {who}\nTotal: {money(total)}\nCommission due: {money(commission)}\n\n{offer['text']}",
             message_thread_id=thread,
         )
     except Exception:
@@ -376,13 +435,11 @@ async def change_offer(callback: types.CallbackQuery):
     save_data()
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer("Nothing was saved. Write what you want to change.")
-    await bot.send_message(group_id, "The buyer wants a change. Nothing was saved.", message_thread_id=offer["thread_id"])
+    await bot.send_message(offer["chat_id"], "The buyer wants a change. Nothing was saved.", message_thread_id=offer["thread_id"])
 
 @dp.message(F.chat.type.in_({"group", "supergroup"}), ~F.text.startswith("/"))
 async def from_group_media_and_text(message: types.Message):
     if message.from_user and message.from_user.is_bot:
-        return
-    if group_id is None or message.chat.id != group_id:
         return
 
     thread_id = message.message_thread_id
@@ -392,6 +449,7 @@ async def from_group_media_and_text(message: types.Message):
         return
 
     buyer_id = topic_buyers[thread_id]
+    vendor_key = topic_vendors.get(thread_id, "tidetron")
     caption_text = message.caption or message.text or ""
 
     if waiting_offer_text.get(thread_id):
@@ -410,13 +468,15 @@ async def from_group_media_and_text(message: types.Message):
             "total": None,
             "buyer_id": buyer_id,
             "thread_id": thread_id,
+            "chat_id": message.chat.id,
+            "vendor_key": vendor_key
         }
         waiting_total[thread_id] = key
         save_data()
 
         hint = f" (detected: {money(detected)})" if detected else ""
         await bot.send_message(
-            group_id,
+            message.chat.id,
             f"💰 <b>Step 2/2: Confirm the Total Amount</b>{hint}\n"
             "Please type the final total amount now (e.g. 150 or $150):\n\n"
             "请确认最终总金额（例如输入：150 或 $150）：",
@@ -443,8 +503,9 @@ async def from_group_media_and_text(message: types.Message):
         await message.reply("Do not write the commission in the message.")
         return
 
+    vendor_name = VENDORS.get(vendor_key, {}).get("chat_name", "Vendor")
+    header = f"{vendor_name}:\n\n"
     try:
-        header = "Tidetron Peptides:\n\n"
         if message.photo:
             await bot.send_photo(
                 buyer_id,
@@ -463,9 +524,9 @@ async def from_group_media_and_text(message: types.Message):
         await message.reply("The message was not delivered to the buyer.")
         return
 
-    await clear_lock_button(thread_id)
+    await clear_lock_button(message.chat.id, thread_id)
     sent = await bot.send_message(
-        group_id,
+        message.chat.id,
         "Create an official offer card?\n创建正式报价单？",
         message_thread_id=thread_id,
         reply_markup=make_offer_keyboard(),
@@ -477,30 +538,37 @@ async def from_buyer_media_and_text(message: types.Message):
     global pending_connect_thread
     if message.text and message.text.startswith("/"):
         return
-    if (message.from_user.username or "").lower() == VENDOR_USERNAME.lower():
+    if (message.from_user.username or "").lower() == ADMIN_USERNAME.lower():
         return
 
-    buyer_names[message.from_user.id] = buyer_label(message.from_user)
+    buyer_id = message.from_user.id
+    buyer_names[buyer_id] = buyer_label(message.from_user)
+
+    vendor_key = buyer_active_vendor.get(buyer_id, "tidetron")
+    v = VENDORS.get(vendor_key, VENDORS["tidetron"])
+    target_group_id = v["sales_group_id"]
 
     if pending_connect_thread:
         thread_id = pending_connect_thread
         pending_connect_thread = None
-        buyer_topics[message.from_user.id] = thread_id
-        topic_buyers[thread_id] = message.from_user.id
+        buyer_topics[buyer_id] = thread_id
+        topic_buyers[thread_id] = buyer_id
+        topic_vendors[thread_id] = vendor_key
         save_data()
-        await bot.send_message(group_id, "Linked.\nWrite the offer in this topic.", message_thread_id=thread_id)
+        await bot.send_message(target_group_id, "Linked.\nWrite the offer in this topic.", message_thread_id=thread_id)
 
-    thread_id = buyer_topics.get(message.from_user.id)
+    thread_id = buyer_topics.get(buyer_id)
     if not thread_id:
         try:
-            topic = await bot.create_forum_topic(group_id, topic_name(message.from_user))
+            topic = await bot.create_forum_topic(target_group_id, topic_name(message.from_user))
             thread_id = topic.message_thread_id
-            buyer_topics[message.from_user.id] = thread_id
-            topic_buyers[thread_id] = message.from_user.id
+            buyer_topics[buyer_id] = thread_id
+            topic_buyers[thread_id] = buyer_id
+            topic_vendors[thread_id] = vendor_key
             save_data()
             await bot.send_message(
-                group_id,
-                f"New buyer: {buyer_label(message.from_user)}\nWrite here.",
+                target_group_id,
+                f"New buyer for {v['chat_name']}: {buyer_label(message.from_user)}\nWrite here.",
                 message_thread_id=thread_id
             )
         except Exception as e:
@@ -511,15 +579,15 @@ async def from_buyer_media_and_text(message: types.Message):
     save_data()
 
     if message.photo:
-        await bot.send_photo(group_id, message.photo[-1].file_id, caption=message.caption, message_thread_id=thread_id)
+        await bot.send_photo(target_group_id, message.photo[-1].file_id, caption=message.caption, message_thread_id=thread_id)
     elif message.document:
-        await bot.send_document(group_id, message.document.file_id, caption=message.caption, message_thread_id=thread_id)
+        await bot.send_document(target_group_id, message.document.file_id, caption=message.caption, message_thread_id=thread_id)
     elif message.text:
-        await bot.send_message(group_id, message.text, message_thread_id=thread_id)
+        await bot.send_message(target_group_id, message.text, message_thread_id=thread_id)
 
 async def main():
     load_data()
-    print(f"Bot started. Sales Group: {group_id}...")
+    print("Multi-Vendor Bot started successfully...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
