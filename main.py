@@ -19,13 +19,12 @@ DATA_PATH = os.path.join(DATA_DIR, "routes.json")
 
 # ==========================================
 # КОНФИГУРАЦИЯ НА ВЕНДОРИТЕ
-# За нов вендор просто се добавя нов блок тук!
 # ==========================================
 VENDORS = {
     "tidetron": {
         "name": "1. TIDETRON PEPTIDES",
         "chat_name": "TIDETRON PEPTIDES",
-        "sales_group_id": -1004387055068,  # Търговската група за чат с клиента
+        "sales_group_id": -1004387055068,  # Работната група за поръчки
         "banner_path": os.path.join(BASE_DIR, "TidetronCatalogCoverHorizontal.jpg"),
         "catalog_path": os.path.join(BASE_DIR, "Tidetron Peptide Catalog(3).pdf"),
         "button_text": "💬 Chat with Tidetron",
@@ -42,9 +41,9 @@ VENDORS = {
             "🔄 <b>Full Reship Policy</b>\n"
             "In the rare event of transit damage, loss, or customs seizure, your entire order is reshipped immediately free of charge at the vendor’s expense.\n\n"
             "🧪 <b>Blind Lab Testing &amp; Quality Shield</b>\n"
-            "Every batch is produced under cGMP compliance. If an independent accredited 3rd-party lab test (Janoshik or MZ Biolabs) reveals sub-standard purity (&lt;99%) or incorrect quantity:\n"
-            "• 100% refund of the product value\n"
-            "• 100% reimbursement of the testing laboratory fee"
+            "Every batch is produced under strict cGMP compliance. If an independent test from an accredited, internationally recognized 3rd-party laboratory (such as Janoshik or equivalent ISO 17025 accredited facility) reveals sub-standard purity (&lt;98%) or incorrect quantity:\n"
+            "• 100% refund of the full product value\n"
+            "• 100% direct reimbursement of the testing laboratory fee"
         ),
         "chat_card": (
             "<b>TIDETRON PEPTIDES</b>\n"
@@ -83,7 +82,7 @@ def vendor_list_keyboard():
 def confirm_keyboard(key):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Confirm", callback_data=f"yes:{key}")],
-        [InlineKeyboardButton(text="✏️ Change something", callback_data=f"no:{key}")],
+        [InlineKeyboardButton(text="✏️️ Change something", callback_data=f"no:{key}")],
     ])
 
 def make_offer_keyboard():
@@ -263,7 +262,7 @@ async def start_handler(message: types.Message, command: CommandObject):
         await send_vendor_welcome(message, arg)
         return
     await message.answer(
-        "🛡️ <b>Verified Vendors</b>\n\nChoose a vendor below to start chatting directly:",
+        "🛡️️ <b>Verified Vendors</b>\n\nChoose a vendor below to start chatting directly:",
         reply_markup=vendor_list_keyboard(),
         parse_mode="HTML",
     )
@@ -274,7 +273,6 @@ async def open_vendor_callback(callback: types.CallbackQuery):
     vendor_key = callback.data.split(":", 1)[1]
     await send_vendor_welcome(callback.message, vendor_key)
 
-# Публикуване на главния въвеждащ текст за директорията
 @dp.message(Command("post_directory_info"))
 async def post_directory_info_handler(message: types.Message):
     username = (message.from_user.username or "").lower()
@@ -308,7 +306,6 @@ async def post_directory_info_handler(message: types.Message):
     except Exception as e:
         print("Error posting directory info:", e)
 
-# Публикуване на визитка с пълните гаранции за определен вендор (по подразбиране tidetron)
 @dp.message(Command("post_vendor"))
 async def post_vendor_card(message: types.Message, command: CommandObject):
     username = (message.from_user.username or "").lower()
