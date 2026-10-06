@@ -41,7 +41,7 @@ VENDORS = {
             "📍 <b>Warehouses:</b> China &amp; USA\n"
             "🚚 <b>Shipping:</b> 10–15 business days (Global) · 3–5 days (USA Domestic)\n"
             "💳 <b>Payment:</b> Alibaba Trade Assurance, PayPal, Apple Pay, Crypto, Wire Transfer\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "━━━━━━━━━━━━\n\n"
             "🛡️ <b>COMPREHENSIVE BUYER GUARANTEE:</b>\n\n"
             "📦 <b>100% Guaranteed Delivery &amp; DDP Customs</b>\n"
             "All customs clearance, import tariffs, and duties are entirely handled and prepaid by the vendor (Delivered Duty Paid). Zero surprise fees for the recipient.\n\n"
@@ -299,7 +299,7 @@ async def post_directory_info_handler(message: types.Message):
     text = (
         "🛡️ <b>VERIFIED VENDORS DIRECTORY</b>\n\n"
         "Here you will find rigorously vetted and continuously monitored peptide manufacturers. Every supplier listed meets our strict standards for quality, reliability, and secure fulfillment.\n\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "━━━━━━━━━━━━\n\n"
         "📌 <b>HOW TO GET STARTED:</b>\n\n"
         "<b>1️⃣ Select a Vendor</b>\n"
         "Browse our verified partners below and review their capabilities and terms.\n\n"
@@ -309,7 +309,7 @@ async def post_directory_info_handler(message: types.Message):
         "Receive the complete batch price list, warehouse stock, and delivery guidelines automatically.\n\n"
         "<b>4️⃣ Inquire &amp; Order</b>\n"
         "Discuss orders, confirm custom quantities, and complete transactions directly with the vendor team.\n\n"
-        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "━━━━━━━━━━━━\n\n"
         "🔒 <i>Zero-compromise vetting. Only manufacturers maintaining an unblemished track record and verified lab compliance are listed here.</i>"
     )
     try:
