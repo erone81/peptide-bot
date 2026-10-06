@@ -31,7 +31,7 @@ VENDORS = {
         "chat_name": "TIDETRON PEPTIDES",
         "sales_group_id": -1004387055068,
         "banner_path": os.path.join(BASE_DIR, "TidetronCatalogCoverHorizontal.jpg"),
-        "price_banner_path": os.path.join(BASE_DIR, "TidetronPriceListCover.jpg"),
+        "price_banner_path": os.path.join(BASE_DIR, "TidetronPriceListCover.png"),
         "catalog_path": os.path.join(BASE_DIR, "Tidetron Peptide Catalog(3).pdf"),
         "button_text": "💬 Chat with Tidetron 🟢",
         "image_caption": (
@@ -99,7 +99,7 @@ def vendor_list_keyboard():
 def confirm_keyboard(key):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Confirm", callback_data=f"yes:{key}")],
-        [InlineKeyboardButton(text="✏️ Change something", callback_data=f"no:{key}")],
+        [InlineKeyboardButton(text="✏️️ Change something", callback_data=f"no:{key}")],
     ])
 
 def make_offer_keyboard():
@@ -229,10 +229,8 @@ async def send_vendor_welcome(message: types.Message, vendor_key: str):
     buyer_active_vendor[message.chat.id] = vendor_key
     save_data()
 
-    # 1. Изпращане на визитката с иконките
     await message.answer(v["chat_card"], parse_mode="HTML")
 
-    # 2. Изпращане на новата специална картинка (Price List Cover)
     price_banner = v.get("price_banner_path", v["banner_path"])
     if os.path.exists(price_banner):
         await message.answer_photo(
@@ -241,7 +239,6 @@ async def send_vendor_welcome(message: types.Message, vendor_key: str):
             parse_mode="HTML"
         )
 
-    # 3. Изпращане на PDF файла с ценоразписа
     if os.path.exists(v["catalog_path"]):
         await message.answer_document(
             FSInputFile(v["catalog_path"]),
