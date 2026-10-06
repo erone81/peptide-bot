@@ -31,6 +31,7 @@ VENDORS = {
         "chat_name": "TIDETRON PEPTIDES",
         "sales_group_id": -1004387055068,
         "banner_path": os.path.join(BASE_DIR, "TidetronCatalogCoverHorizontal.jpg"),
+        "price_banner_path": os.path.join(BASE_DIR, "TidetronPriceListCover.jpg"),
         "catalog_path": os.path.join(BASE_DIR, "Tidetron Peptide Catalog(3).pdf"),
         "button_text": "💬 Chat with Tidetron 🟢",
         "image_caption": (
@@ -228,17 +229,26 @@ async def send_vendor_welcome(message: types.Message, vendor_key: str):
     buyer_active_vendor[message.chat.id] = vendor_key
     save_data()
 
+    # 1. Изпращане на визитката с иконките
     await message.answer(v["chat_card"], parse_mode="HTML")
 
-    if os.path.exists(v["banner_path"]):
-        await message.answer_photo(FSInputFile(v["banner_path"]))
+    # 2. Изпращане на новата специална картинка (Price List Cover)
+    price_banner = v.get("price_banner_path", v["banner_path"])
+    if os.path.exists(price_banner):
+        await message.answer_photo(
+            FSInputFile(price_banner),
+            caption="💎 <b>Official Price List & Catalog</b>",
+            parse_mode="HTML"
+        )
 
+    # 3. Изпращане на PDF файла с ценоразписа
     if os.path.exists(v["catalog_path"]):
         await message.answer_document(
             FSInputFile(v["catalog_path"]),
-            caption="💰 <b>Full Price List</b>",
+            caption="💰 <b>Full Price List (PDF)</b>",
             parse_mode="HTML",
         )
+    
     await message.answer(
         "💬 <b>Continue with the vendor.</b>\n\n"
         "Just write your message here.",
