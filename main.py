@@ -28,6 +28,7 @@ next_offer_number = 1001
 proof_topic_id = None
 lock_button_ids = {}
 waiting_total = {}
+pending_connect_thread = None
 
 def vendor_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -234,6 +235,28 @@ async def register_vendor(message: types.Message):
         "Connected.\n\nEach buyer will appear as a separate topic. Open the topic and just write."
     )
 
+@dp.message(Command("connect"))
+async def connect_topic(message: types.Message):
+    global pending_connect_thread
+    if message.chat.type == "private":
+        await message.answer("Open the buyer topic in Tidetron Sales TPVH and write /connect there.")
+        return
+    if (message.from_user.username or "").lower() != VENDOR_USERNAME:
+        return
+    if group_id is None or message.chat.id != group_id:
+        await message.answer("First write /vendor in this group.")
+        return
+    thread_id = message.message_thread_id
+    if not thread_id or thread_id == 1:
+        await message.answer("Open the buyer topic and write /connect there.")
+        return
+    pending_connect_thread = thread_id
+    await message.answer(
+        "Waiting for the buyer.\n\n"
+        "The buyer must send any message to the bot.\n"
+        "Then write the offer in this same topic."
+    )
+
 @dp.callback_query(F.data.startswith("lock:"))
 async def lock_offer(callback: types.CallbackQuery):
     await callback.answer()
@@ -355,11 +378,9 @@ async def change_offer(callback: types.CallbackQuery):
         message_thread_id=offer["thread_id"],
     )
 
-@dp.message(F.chat.type.in_({"group", "supergroup"}), F.text)
+@dp.message(F.chat.type.in_({"group", "supergroup"}), F.text, ~F.text.startswith("/"))
 async def from_group(message: types.Message):
     if message.from_user and message.from_user.is_bot:
-        return
-    if message.text.startswith("/"):
         return
     if group_id is None or message.chat.id != group_id:
         return
@@ -369,7 +390,11 @@ async def from_group(message: types.Message):
         await message.reply("Open the buyer topic and write there.")
         return
     if thread_id not in topic_buyers:
-        await message.reply("This topic is not linked to a buyer.")
+        await message.reply(
+            "This topic is not linked yet.\n\n"
+            "Write /connect here.\n"
+            "Then the buyer sends any message to the bot."
+        )
         return
 
     waiting_key = waiting_total.get(thread_id)
@@ -426,6 +451,7 @@ async def from_group(message: types.Message):
 
 @dp.message(F.chat.type == "private", F.text)
 async def from_buyer(message: types.Message):
+    global pending_connect_thread
     if message.text.startswith("/"):
         return
     if (message.from_user.username or "").lower() == VENDOR_USERNAME:
@@ -436,6 +462,27 @@ async def from_buyer(message: types.Message):
         return
 
     buyer_names[message.from_user.id] = buyer_label(message.from_user)
+
+    if pending_connect_thread:
+        thread_id = pending_connect_thread
+        pending_connect_thread = None
+        old = buyer_topics.get(message.from_user.id)
+        if old and old in topic_buyers and old != thread_id:
+            topic_buyers.pop(old, None)
+        buyer_topics[message.from_user.id] = thread_id
+        topic_buyers[thread_id] = message.from_user.id
+        save_data()
+        try:
+            await bot.send_message(
+                group_id,
+                "Linked.\n\nWrite the offer in this topic.",
+                message_thread_id=thread_id,
+            )
+            await bot.send_message(group_id, message.text, message_thread_id=thread_id)
+        except Exception:
+            await message.answer("The topic could not be linked. Write /connect in the topic again.")
+        return
+
     thread_id = buyer_topics.get(message.from_user.id)
     if not thread_id:
         try:
