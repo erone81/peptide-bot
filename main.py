@@ -30,6 +30,10 @@ lock_button_ids = {}
 waiting_total = {}
 pending_connect_thread = None
 
+PRICE_REGEX = (
+    r"(?i)(?:total|amount|price|final|sum|cost|pay|合计|总计|总价|金额|最终价)\s*[:：]?\s*\$?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)"
+)
+
 def vendor_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Tidetron Peptides", callback_data="vendor_tidetron")]
@@ -41,10 +45,10 @@ def confirm_keyboard(key):
         [InlineKeyboardButton(text="✏️ Change something", callback_data=f"no:{key}")],
     ])
 
-def lock_keyboard(key, total):
-    text = f"🔒 Lock · {money(total)}" if total else "🔒 Lock offer"
+def make_offer_keyboard(key, total):
+    button_text = f"🔒 Lock offer · {money(total)}" if total else "📝 Make offer"
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=text, callback_data=f"lock:{key}")]
+        [InlineKeyboardButton(text=button_text, callback_data=f"lock:{key}")]
     ])
 
 def topic_name(user: types.User) -> str:
@@ -72,17 +76,22 @@ def clean_number(raw):
         return None
 
 def parse_only_number(text):
-    cleaned = (text or "").strip().lower().replace("$", "").replace("usd", "").strip()
+    if not text:
+        return None
+    cleaned = text.strip().lower()
+    cleaned = re.sub(r"[\$€£]|usd|eur|дол.*|bucks", "", cleaned).strip()
     return clean_number(cleaned)
 
 def detect_total(text):
-    found = re.findall(
-        r"(?i)(?:total|amount|price|合计|总计|总价|金额)\s*[:：]?\s*\$?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)",
-        text or "",
-    )
-    if not found:
-        return None
-    return clean_number(found[-1])
+    text = text or ""
+    found = re.findall(PRICE_REGEX, text)
+    if found:
+        return clean_number(found[-1])
+    
+    standalone = re.findall(r"(?i)(?:^\s*\$?\s*([0-9]+(?:\.[0-9]{1,2})?)\s*(?:\$|usd)?\s*$)", text, re.MULTILINE)
+    if standalone:
+        return clean_number(standalone[-1])
+    return None
 
 def leaks_commission(text):
     low = (text or "").lower()
@@ -195,7 +204,7 @@ async def ask_for_total(key, offer):
     save_data()
     await bot.send_message(
         group_id,
-        "Write only the total number.\nExample: 450\n\n只写总价数字。例如：450",
+        "Write the total amount (e.g. 150 or $150).\n只写总价金额（例如：150 或 $150）：",
         message_thread_id=offer["thread_id"],
     )
 
@@ -251,7 +260,7 @@ async def connect_topic(message: types.Message):
     await message.answer("Waiting for the buyer.\n\nThe buyer must send any message to the bot.\nThen write the offer in this topic.")
 
 @dp.callback_query(F.data.startswith("lock:"))
-async def lock_offer(callback: types.CallbackQuery):
+async def lock_offer_click(callback: types.CallbackQuery):
     await callback.answer()
     if callback.message.chat.id != group_id:
         return
@@ -260,6 +269,7 @@ async def lock_offer(callback: types.CallbackQuery):
     if not offer or offer.get("status") != "draft":
         await callback.answer("This offer is no longer active.", show_alert=True)
         return
+
     if offer.get("total"):
         try:
             await send_confirm_card(key, offer)
@@ -270,6 +280,7 @@ async def lock_offer(callback: types.CallbackQuery):
             return
         await callback.message.edit_text(f"Sent for confirmation.\nTotal: {money(offer['total'])}")
         return
+
     await callback.message.edit_text("Waiting for the total number.")
     await ask_for_total(key, offer)
 
@@ -299,6 +310,7 @@ async def confirm_offer(callback: types.CallbackQuery):
     save_data()
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(f"Offer {code} is confirmed.\n\n{buyer_offer_text(offer)}\n\nThis is the final offer.")
+    
     await bot.send_message(
         group_id,
         f"Locked.\n\nOffer: {code}\nTotal: {money(total)}\nCommission due: {money(commission)}\n\nThe buyer does not see the commission.",
@@ -350,7 +362,7 @@ async def from_group_media_and_text(message: types.Message):
     buyer_id = topic_buyers[thread_id]
     caption_text = message.caption or message.text or ""
 
-    # Проверка дали чакаме само цифра за total
+    # Ако очакваме въвеждане на сума
     waiting_key = waiting_total.get(thread_id)
     if waiting_key and message.text:
         total = parse_only_number(message.text)
@@ -366,7 +378,7 @@ async def from_group_media_and_text(message: types.Message):
         await message.reply("Do not write the commission in the message/offer.")
         return
 
-    # Изпращане към купувача според типа съдържание
+    # Доставка до купувача
     try:
         header = "Tidetron Peptides:\n\n"
         if message.photo:
@@ -387,29 +399,28 @@ async def from_group_media_and_text(message: types.Message):
         await message.reply("The message was not delivered to the buyer.")
         return
 
-    # Lock бутон се показва САМО при наличие на цена/тотал
+    # Изчиства стария бутон и слага нов
+    await clear_lock_button(thread_id)
+    replace_open_offers(buyer_id)
+    
     total = detect_total(caption_text)
-    is_explicit_offer = any(w in caption_text.lower() for w in ["total:", "offer:", "сума:", "цена:"])
-
-    if total or is_explicit_offer:
-        await clear_lock_button(thread_id)
-        replace_open_offers(buyer_id)
-        key = secrets.token_hex(4)
-        pending[key] = {
-            "status": "draft",
-            "text": caption_text,
-            "total": total,
-            "buyer_id": buyer_id,
-            "thread_id": thread_id,
-        }
-        save_data()
-        sent = await bot.send_message(
-            group_id,
-            "Final offer?\n最终报价？",
-            message_thread_id=thread_id,
-            reply_markup=lock_keyboard(key, total),
-        )
-        lock_button_ids[thread_id] = sent.message_id
+    key = secrets.token_hex(4)
+    pending[key] = {
+        "status": "draft",
+        "text": caption_text,
+        "total": total,
+        "buyer_id": buyer_id,
+        "thread_id": thread_id,
+    }
+    save_data()
+    
+    sent = await bot.send_message(
+        group_id,
+        "Send as formal offer?\n作为正式报价发送？",
+        message_thread_id=thread_id,
+        reply_markup=make_offer_keyboard(key, total),
+    )
+    lock_button_ids[thread_id] = sent.message_id
 
 # ==========================================
 # КУПУВАЧ -> ВЕНДОР (Снимки, Документи, Текст)
