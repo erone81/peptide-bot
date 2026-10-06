@@ -12,7 +12,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Фиксирано ID на групата Tidetron Sales TPVH
+# ID на търговската група за поръчки
 GROUP_ID = -1004387055068
 VENDOR_USERNAME = "g3orgel"
 
@@ -235,7 +235,7 @@ async def vendor_tidetron(callback: types.CallbackQuery):
     await callback.answer()
     await send_tidetron(callback.message)
 
-# Команда за публикуване на изчистената визитка в раздела Verified Vendors
+# Команда за публикуване на изчистената визитка (работи навсякъде, където я извикаш)
 @dp.message(Command("post_vendor"))
 async def post_vendor_card(message: types.Message):
     username = (message.from_user.username or "").lower()
@@ -250,41 +250,40 @@ async def post_vendor_card(message: types.Message):
     thread_id = message.message_thread_id
     banner_file = HORIZONTAL_BANNER_PATH if os.path.exists(HORIZONTAL_BANNER_PATH) else COVER_PATH
     
-    if os.path.exists(banner_file):
-        await bot.send_photo(
-            message.chat.id,
-            FSInputFile(banner_file),
-            caption=caption_text,
-            reply_markup=public_vendor_keyboard(),
-            parse_mode="HTML",
-            message_thread_id=thread_id
-        )
-    else:
-        await bot.send_message(
-            message.chat.id,
-            caption_text,
-            reply_markup=public_vendor_keyboard(),
-            parse_mode="HTML",
-            message_thread_id=thread_id
-        )
     try:
+        if os.path.exists(banner_file):
+            await bot.send_photo(
+                message.chat.id,
+                FSInputFile(banner_file),
+                caption=caption_text,
+                reply_markup=public_vendor_keyboard(),
+                parse_mode="HTML",
+                message_thread_id=thread_id
+            )
+        else:
+            await bot.send_message(
+                message.chat.id,
+                caption_text,
+                reply_markup=public_vendor_keyboard(),
+                parse_mode="HTML",
+                message_thread_id=thread_id
+            )
         await message.delete()
-    except Exception:
-        pass
+    except Exception as e:
+        print("Error posting vendor card:", e)
 
 @dp.message(Command("vendor"))
 async def register_vendor(message: types.Message):
     global group_id
     if message.chat.type == "private":
-        await message.answer("Write /vendor inside the group.")
+        await message.answer("Write /vendor inside the sales group.")
         return
     username = (message.from_user.username or "").lower()
     if username != VENDOR_USERNAME.lower():
-        await message.answer("Only GeorgeL can configure this group.")
         return
     group_id = message.chat.id
     save_data()
-    await message.answer("Connected.\n\nGroup ID is permanently registered.")
+    await message.answer("Connected.\n\nSales Group ID is permanently registered.")
 
 @dp.message(Command("connect"))
 async def connect_topic(message: types.Message):
@@ -299,4 +298,240 @@ async def connect_topic(message: types.Message):
         await message.answer("Open the buyer topic and write /connect there.")
         return
     pending_connect_thread = thread_id
-    await message.answer("Waiting for
+    await message.answer("Waiting for the buyer.\n\nThe buyer must send any message to the bot.\nThen write the offer in this topic.")
+
+# 1. Натискане на бутона Make Offer
+@dp.callback_query(F.data == "start_make_offer")
+async def make_offer_clicked(callback: types.CallbackQuery):
+    await callback.answer()
+    thread_id = callback.message.message_thread_id
+    if not thread_id or thread_id not in topic_buyers:
+        return
+    
+    waiting_offer_text[thread_id] = True
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await bot.send_message(
+        group_id,
+        "✍️ <b>Step 1/2: Write the full offer text</b>\n"
+        "Include items, quantities, and delivery notes.\n\n"
+        "请在此写下完整的报价明细（产品、数量、地址等）：",
+        message_thread_id=thread_id,
+        parse_mode="HTML"
+    )
+
+# Купувачът потвърждава офертата
+@dp.callback_query(F.data.startswith("yes:"))
+async def confirm_offer(callback: types.CallbackQuery):
+    global next_offer_number
+    key = callback.data.split(":", 1)[1]
+    offer = pending.get(key)
+    if not offer or callback.from_user.id != offer.get("buyer_id") or offer.get("status") != "waiting":
+        await callback.answer("This offer is no longer active.", show_alert=True)
+        return
+
+    await callback.answer("Confirmed")
+    code = f"TPVH-{next_offer_number}"
+    next_offer_number += 1
+    total = float(offer["total"])
+    commission = commission_of(total)
+    offer["status"] = "locked"
+    offer["code"] = code
+    locked_offers.append({
+        "code": code,
+        "total": total,
+        "commission": commission,
+        "buyer_id": offer["buyer_id"],
+        "text": offer["text"],
+    })
+    save_data()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer(f"Offer {code} is confirmed.\n\n{buyer_offer_text(offer)}\n\nThis is the final offer.")
+    
+    await bot.send_message(
+        group_id,
+        f"Locked.\n\nOffer: {code}\nTotal: {money(total)}\nCommission due: {money(commission)}\n\nThe buyer does not see the commission.",
+        message_thread_id=offer["thread_id"],
+    )
+    try:
+        thread = await proof_thread()
+        who = buyer_names.get(offer["buyer_id"], "Unknown buyer")
+        await bot.send_message(
+            group_id,
+            f"LOCKED OFFER\n\nOffer: {code}\nVendor: Tidetron Peptides\nBuyer: {who}\nTotal: {money(total)}\nCommission due: {money(commission)}\n\n{offer['text']}",
+            message_thread_id=thread,
+        )
+    except Exception:
+        pass
+
+# Купувачът иска промяна
+@dp.callback_query(F.data.startswith("no:"))
+async def change_offer(callback: types.CallbackQuery):
+    key = callback.data.split(":", 1)[1]
+    offer = pending.get(key)
+    if not offer or callback.from_user.id != offer.get("buyer_id") or offer.get("status") != "waiting":
+        await callback.answer("This offer is no longer active.", show_alert=True)
+        return
+    await callback.answer("Nothing was saved")
+    offer["status"] = "changed"
+    save_data()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer("Nothing was saved. Write what you want to change.")
+    await bot.send_message(group_id, "The buyer wants a change. Nothing was saved.", message_thread_id=offer["thread_id"])
+
+# ==========================================
+# ВЕНДОР -> КУПУВАЧ (Снимки, Документи, Текст)
+# ==========================================
+
+@dp.message(F.chat.type.in_({"group", "supergroup"}), ~F.text.startswith("/"))
+async def from_group_media_and_text(message: types.Message):
+    if message.from_user and message.from_user.is_bot:
+        return
+    if group_id is None or message.chat.id != group_id:
+        return
+
+    thread_id = message.message_thread_id
+    if not thread_id or thread_id == 1:
+        return
+    if thread_id not in topic_buyers:
+        return
+
+    buyer_id = topic_buyers[thread_id]
+    caption_text = message.caption or message.text or ""
+
+    # СТЪПКА 1: Вендорът е натиснал Make Offer и изпраща описанието
+    if waiting_offer_text.get(thread_id):
+        waiting_offer_text.pop(thread_id, None)
+        
+        if leaks_commission(caption_text):
+            await message.reply("Do not write the commission in the offer. Send it again.")
+            return
+
+        detected = detect_total(caption_text)
+        replace_open_offers(buyer_id)
+        key = secrets.token_hex(4)
+        pending[key] = {
+            "status": "need_total",
+            "text": caption_text,
+            "total": None,
+            "buyer_id": buyer_id,
+            "thread_id": thread_id,
+        }
+        waiting_total[thread_id] = key
+        save_data()
+
+        hint = f" (detected: {money(detected)})" if detected else ""
+        await bot.send_message(
+            group_id,
+            f"💰 <b>Step 2/2: Confirm the Total Amount</b>{hint}\n"
+            "Please type the final total amount now (e.g. 150 or $150):\n\n"
+            "请确认最终总金额（例如输入：150 或 $150）：",
+            message_thread_id=thread_id,
+            parse_mode="HTML"
+        )
+        return
+
+    # СТЪПКА 2: Въвеждане на тотала
+    waiting_key = waiting_total.get(thread_id)
+    if waiting_key and message.text:
+        total = parse_only_number(message.text)
+        offer = pending.get(waiting_key)
+        if total is not None and offer and offer.get("status") == "need_total":
+            waiting_total.pop(thread_id, None)
+            offer["total"] = total
+            await send_confirm_card(waiting_key, offer)
+            await message.answer(f"✅ Formal offer sent to buyer for confirmation.\nTotal: {money(total)}")
+            return
+        else:
+            await message.reply("Please write a valid number (e.g. 150 or $150).\n请输入有效金额数字：")
+            return
+
+    if leaks_commission(caption_text):
+        await message.reply("Do not write the commission in the message.")
+        return
+
+    # СТЪПКА 3: Обикновени съобщения
+    try:
+        header = "Tidetron Peptides:\n\n"
+        if message.photo:
+            await bot.send_photo(
+                buyer_id,
+                message.photo[-1].file_id,
+                caption=f"{header}{message.caption}" if message.caption else None
+            )
+        elif message.document:
+            await bot.send_document(
+                buyer_id,
+                message.document.file_id,
+                caption=f"{header}{message.caption}" if message.caption else None
+            )
+        elif message.text:
+            await bot.send_message(buyer_id, f"{header}{message.text}")
+    except Exception:
+        await message.reply("The message was not delivered to the buyer.")
+        return
+
+    await clear_lock_button(thread_id)
+    sent = await bot.send_message(
+        group_id,
+        "Create an official offer card?\n创建正式报价单？",
+        message_thread_id=thread_id,
+        reply_markup=make_offer_keyboard(),
+    )
+    lock_button_ids[thread_id] = sent.message_id
+
+# ==========================================
+# КУПУВАЧ -> ВЕНДОР (Снимки, Документи, Текст)
+# ==========================================
+
+@dp.message(F.chat.type == "private")
+async def from_buyer_media_and_text(message: types.Message):
+    global pending_connect_thread
+    if message.text and message.text.startswith("/"):
+        return
+    if (message.from_user.username or "").lower() == VENDOR_USERNAME.lower():
+        return
+
+    buyer_names[message.from_user.id] = buyer_label(message.from_user)
+
+    if pending_connect_thread:
+        thread_id = pending_connect_thread
+        pending_connect_thread = None
+        buyer_topics[message.from_user.id] = thread_id
+        topic_buyers[thread_id] = message.from_user.id
+        save_data()
+        await bot.send_message(group_id, "Linked.\nWrite the offer in this topic.", message_thread_id=thread_id)
+
+    thread_id = buyer_topics.get(message.from_user.id)
+    if not thread_id:
+        try:
+            topic = await bot.create_forum_topic(group_id, topic_name(message.from_user))
+            thread_id = topic.message_thread_id
+            buyer_topics[message.from_user.id] = thread_id
+            topic_buyers[thread_id] = message.from_user.id
+            save_data()
+            await bot.send_message(
+                group_id,
+                f"New buyer: {buyer_label(message.from_user)}\nWrite here.",
+                message_thread_id=thread_id
+            )
+        except Exception as e:
+            print("Create topic failed:", e)
+            await message.answer("Vendor chat not ready. Please try again.")
+            return
+
+    save_data()
+
+    if message.photo:
+        await bot.send_photo(group_id, message.photo[-1].file_id, caption=message.caption, message_thread_id=thread_id)
+    elif message.document:
+        await bot.send_document(group_id, message.document.file_id, caption=message.caption, message_thread_id=thread_id)
+    elif message.text:
+        await bot.send_message(group_id, message.text, message_thread_id=thread_id)
+
+async def main():
+    load_data()
+    print(f"Bot started. Sales Group: {group_id}...")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
