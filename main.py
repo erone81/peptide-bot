@@ -12,15 +12,15 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ID на търговската група за поръчки
+# ID на работната група за поръчки Tidetron Sales TPVH
 GROUP_ID = -1004387055068
 VENDOR_USERNAME = "g3orgel"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = "/app/data" if os.path.exists("/app/data") else BASE_DIR
 
-COVER_PATH = os.path.join(BASE_DIR, "TidetronCatalogCover.jpg")
 HORIZONTAL_BANNER_PATH = os.path.join(BASE_DIR, "TidetronCatalogCoverHorizontal.jpg")
+COVER_PATH = os.path.join(BASE_DIR, "TidetronCatalogCover.jpg")
 CATALOG_PATH = os.path.join(BASE_DIR, "Tidetron Peptide Catalog(3).pdf")
 DATA_PATH = os.path.join(DATA_DIR, "routes.json")
 
@@ -57,7 +57,6 @@ def make_offer_keyboard():
         [InlineKeyboardButton(text="📝 Make offer", callback_data="start_make_offer")]
     ])
 
-# Бутон за публичната визитка в раздела Verified Vendors
 def public_vendor_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
@@ -167,22 +166,27 @@ def replace_open_offers(buyer_id):
         if offer.get("buyer_id") == buyer_id and offer.get("status") in ("draft", "need_total", "waiting"):
             offer["status"] = "replaced"
 
+# Представяне на вендора вътре в чата с новата структура и икони
 async def send_tidetron(message: types.Message):
-    await message.answer(
-        "✅ <b>VERIFIED VENDOR</b>\n\n"
-        "<b>Tidetron Peptides</b>\n"
-        "Sales contact: <b>Liao</b>\n\n"
+    card_text = (
+        "<b>TIDETRON PEPTIDES</b>\n"
+        "✅ <b>Verified Vendor</b>\n\n"
         "📍 <b>Warehouse:</b> China &amp; USA\n"
         "🚚 <b>Shipping:</b> 10–15 days (China) · 3–5 days (USA)\n"
-        "💳 <b>Payment:</b> Alibaba, PayPal, Apple Pay, Crypto &amp; more",
-        parse_mode="HTML",
+        "💳 <b>Payment:</b> Alibaba, PayPal, Apple Pay, Crypto &amp; more"
     )
-    if os.path.exists(COVER_PATH):
-        await message.answer_photo(FSInputFile(COVER_PATH))
+    await message.answer(card_text, parse_mode="HTML")
+
+    # Използва се хоризонталният банер като корица
+    banner_file = HORIZONTAL_BANNER_PATH if os.path.exists(HORIZONTAL_BANNER_PATH) else COVER_PATH
+    if os.path.exists(banner_file):
+        await message.answer_photo(FSInputFile(banner_file))
+
+    # Изпращане на каталога с цветна икона за пари/златен долар
     if os.path.exists(CATALOG_PATH):
         await message.answer_document(
             FSInputFile(CATALOG_PATH),
-            caption="📄 <b>Full price list</b>",
+            caption="💰 <b>Full Price List</b>",
             parse_mode="HTML",
         )
     await message.answer(
@@ -235,7 +239,6 @@ async def vendor_tidetron(callback: types.CallbackQuery):
     await callback.answer()
     await send_tidetron(callback.message)
 
-# Команда за публикуване на изчистената визитка (работи навсякъде, където я извикаш)
 @dp.message(Command("post_vendor"))
 async def post_vendor_card(message: types.Message):
     username = (message.from_user.username or "").lower()
@@ -243,8 +246,8 @@ async def post_vendor_card(message: types.Message):
         return
     
     caption_text = (
-        "<b>1. Tidetron Peptides</b>\n"
-        "🛡️ Verified Vendor"
+        "<b>1. TIDETRON PEPTIDES</b>\n"
+        "✅ Verified Vendor"
     )
     
     thread_id = message.message_thread_id
@@ -300,7 +303,6 @@ async def connect_topic(message: types.Message):
     pending_connect_thread = thread_id
     await message.answer("Waiting for the buyer.\n\nThe buyer must send any message to the bot.\nThen write the offer in this topic.")
 
-# 1. Натискане на бутона Make Offer
 @dp.callback_query(F.data == "start_make_offer")
 async def make_offer_clicked(callback: types.CallbackQuery):
     await callback.answer()
@@ -319,7 +321,6 @@ async def make_offer_clicked(callback: types.CallbackQuery):
         parse_mode="HTML"
     )
 
-# Купувачът потвърждава офертата
 @dp.callback_query(F.data.startswith("yes:"))
 async def confirm_offer(callback: types.CallbackQuery):
     global next_offer_number
@@ -363,7 +364,6 @@ async def confirm_offer(callback: types.CallbackQuery):
     except Exception:
         pass
 
-# Купувачът иска промяна
 @dp.callback_query(F.data.startswith("no:"))
 async def change_offer(callback: types.CallbackQuery):
     key = callback.data.split(":", 1)[1]
@@ -377,10 +377,6 @@ async def change_offer(callback: types.CallbackQuery):
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer("Nothing was saved. Write what you want to change.")
     await bot.send_message(group_id, "The buyer wants a change. Nothing was saved.", message_thread_id=offer["thread_id"])
-
-# ==========================================
-# ВЕНДОР -> КУПУВАЧ (Снимки, Документи, Текст)
-# ==========================================
 
 @dp.message(F.chat.type.in_({"group", "supergroup"}), ~F.text.startswith("/"))
 async def from_group_media_and_text(message: types.Message):
@@ -398,7 +394,6 @@ async def from_group_media_and_text(message: types.Message):
     buyer_id = topic_buyers[thread_id]
     caption_text = message.caption or message.text or ""
 
-    # СТЪПКА 1: Вендорът е натиснал Make Offer и изпраща описанието
     if waiting_offer_text.get(thread_id):
         waiting_offer_text.pop(thread_id, None)
         
@@ -430,7 +425,6 @@ async def from_group_media_and_text(message: types.Message):
         )
         return
 
-    # СТЪПКА 2: Въвеждане на тотала
     waiting_key = waiting_total.get(thread_id)
     if waiting_key and message.text:
         total = parse_only_number(message.text)
@@ -449,7 +443,6 @@ async def from_group_media_and_text(message: types.Message):
         await message.reply("Do not write the commission in the message.")
         return
 
-    # СТЪПКА 3: Обикновени съобщения
     try:
         header = "Tidetron Peptides:\n\n"
         if message.photo:
@@ -478,10 +471,6 @@ async def from_group_media_and_text(message: types.Message):
         reply_markup=make_offer_keyboard(),
     )
     lock_button_ids[thread_id] = sent.message_id
-
-# ==========================================
-# КУПУВАЧ -> ВЕНДОР (Снимки, Документи, Текст)
-# ==========================================
 
 @dp.message(F.chat.type == "private")
 async def from_buyer_media_and_text(message: types.Message):
