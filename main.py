@@ -32,7 +32,7 @@ VENDORS = {
         "sales_group_id": -1004387055068,
         "banner_path": os.path.join(BASE_DIR, "TidetronCatalogCoverHorizontal.jpg"),
         "catalog_path": os.path.join(BASE_DIR, "Tidetron Peptide Catalog(3).pdf"),
-        "button_text": "💬 Chat with Tidetron",
+        "button_text": "💬 Chat with Tidetron 🟢",
         "image_caption": (
             "<b>1. TIDETRON PEPTIDES</b>\n"
             "✅ <b>Verified Vendor</b>"
@@ -108,7 +108,7 @@ def make_offer_keyboard():
 
 def public_vendor_keyboard(vendor_key: str):
     v = VENDORS.get(vendor_key, {})
-    label = v.get("button_text", "💬 Chat with Vendor")
+    label = v.get("button_text", "💬 Chat with Vendor 🟢")
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text=label,
@@ -291,7 +291,6 @@ async def open_vendor_callback(callback: types.CallbackQuery):
     vendor_key = callback.data.split(":", 1)[1]
     await send_vendor_welcome(callback.message, vendor_key)
 
-# 1. Главен въвеждащ текст
 @dp.message(Command("post_directory_info"))
 async def post_directory_info_handler(message: types.Message):
     if not is_admin(message.from_user):
@@ -328,7 +327,6 @@ async def post_directory_info_handler(message: types.Message):
     except Exception:
         pass
 
-# 2. Визитка на вендор (Снимка + Текст с гаранции + Бутон)
 @dp.message(Command("post_vendor"))
 async def post_vendor_card(message: types.Message, command: CommandObject):
     if not is_admin(message.from_user):
@@ -344,7 +342,6 @@ async def post_vendor_card(message: types.Message, command: CommandObject):
     thread_id = message.message_thread_id
 
     try:
-        # Първо качваме хоризонталната визия с кратко име
         if os.path.exists(banner_file):
             await bot.send_photo(
                 message.chat.id,
@@ -354,7 +351,6 @@ async def post_vendor_card(message: types.Message, command: CommandObject):
                 message_thread_id=thread_id
             )
         
-        # Веднага под нея публикуваме детайлните гаранции и бутона за чат
         await bot.send_message(
             message.chat.id,
             v["post_details"],
