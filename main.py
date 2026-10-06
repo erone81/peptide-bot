@@ -71,6 +71,7 @@ buyer_names = {}
 pending = {}
 locked_offers = []
 next_offer_number = 1001
+next_buyer_number = 1
 proof_topic_id = None
 lock_button_ids = {}
 waiting_offer_text = {}
@@ -112,6 +113,11 @@ def paid_keyboard(key):
         [InlineKeyboardButton(text="✅ Deal Complete & Paid", callback_data=f"paid:{key}")]
     ])
 
+def mark_comm_keyboard(code):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"🟢 Mark Paid ({code})", callback_data=f"mark_paid:{code}")]
+    ])
+
 def public_vendor_keyboard(vendor_key: str):
     v = VENDORS.get(vendor_key, {})
     label = v.get("button_text", "💬 Chat with Vendor 🟢")
@@ -122,9 +128,9 @@ def public_vendor_keyboard(vendor_key: str):
         )]
     ])
 
-def topic_name(user: types.User) -> str:
+def topic_name(user: types.User, num: int) -> str:
     who = user.username or user.full_name or "Buyer"
-    return f"Buyer · {who}"[:120]
+    return f"#{num} · {who}"[:120]
 
 def money(value):
     return f"{value:.2f} USD"
@@ -192,6 +198,7 @@ def save_data():
                     "pending": pending,
                     "locked_offers": locked_offers,
                     "next_offer_number": next_offer_number,
+                    "next_buyer_number": next_buyer_number,
                     "proof_topic_id": proof_topic_id,
                 },
                 f,
@@ -203,7 +210,7 @@ def save_data():
 
 def load_data():
     global group_id, buyer_topics, topic_buyers, topic_vendors, buyer_active_vendor, buyer_names
-    global pending, locked_offers, next_offer_number, proof_topic_id
+    global pending, locked_offers, next_offer_number, next_buyer_number, proof_topic_id
     if not os.path.exists(DATA_PATH):
         return
     try:
@@ -218,6 +225,7 @@ def load_data():
         pending = data.get("pending", {})
         locked_offers = data.get("locked_offers", [])
         next_offer_number = int(data.get("next_offer_number", 1001))
+        next_buyer_number = int(data.get("next_buyer_number", 1))
         proof_topic_id = data.get("proof_topic_id")
     except Exception as e:
         print(f"Error loading routes.json: {e}")
@@ -313,19 +321,59 @@ async def commission_stats(message: types.Message):
     unpaid_comm = sum(o.get("commission", 0) for o in locked_offers if not o.get("paid", False))
     paid_comm = sum(o.get("commission", 0) for o in locked_offers if o.get("paid", False))
     
-    text = (
+    summary = (
         f"📊 <b>COMMISSION &amp; SALES STATS</b>\n\n"
         f"📦 Total Locked Offers: {len(locked_offers)}\n"
         f"💰 Total Sales Volume: {money(total_sales)}\n"
         f"💎 Total Commission (10%): {money(total_comm)}\n"
-        f"✅ Already Paid: {money(paid_comm)}\n"
-        f"⏳ <b>Remaining Due (Unpaid):</b> {money(unpaid_comm)}"
+        f"✅ Already Paid to You: {money(paid_comm)}\n"
+        f"⏳ <b>Remaining Due (Unpaid):</b> {money(unpaid_comm)}\n\n"
+        f"━━━━━━━━━━━━\n"
+        f"📌 <b>UNPAID DEALS BREAKDOWN:</b>"
     )
     
     try:
-        await message.answer(text, parse_mode="HTML", message_thread_id=message.message_thread_id)
+        await message.answer(summary, parse_mode="HTML", message_thread_id=message.message_thread_id)
     except Exception:
-        await message.answer(text, parse_mode="HTML")
+        await message.answer(summary, parse_mode="HTML")
+
+    unpaid_list = [o for o in locked_offers if not o.get("paid", False)]
+    if not unpaid_list:
+        await message.answer("🎉 No unpaid commissions! All deals are settled.", message_thread_id=message.message_thread_id)
+        return
+
+    for o in unpaid_list:
+        code = o.get("code")
+        buyer_name = buyer_names.get(o.get("buyer_id"), "Buyer")
+        total = o.get("total", 0)
+        comm = o.get("commission", 0)
+        txt = (
+            f"🏷️ <b>Offer:</b> {code}\n"
+            f"👤 <b>Buyer:</b> {buyer_name}\n"
+            f"💰 <b>Total:</b> {money(total)} | 💎 <b>Commission:</b> <b>{money(comm)}</b>"
+        )
+        try:
+            await message.answer(txt, parse_mode="HTML", message_thread_id=message.message_thread_id, reply_markup=mark_comm_keyboard(code))
+        except Exception:
+            await message.answer(txt, parse_mode="HTML", reply_markup=mark_comm_keyboard(code))
+
+@dp.callback_query(F.data.startswith("mark_paid:"))
+async def mark_commission_paid(callback: types.CallbackQuery):
+    code = callback.data.split(":", 1)[1]
+    found = False
+    for o in locked_offers:
+        if o.get("code") == code:
+            o["paid"] = True
+            found = True
+            break
+    
+    if found:
+        save_data()
+        await callback.answer(f"Offer {code} commission marked as PAID!")
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.reply(f"✅ Commission for offer <b>{code}</b> has been successfully marked as <b>PAID</b>.", parse_mode="HTML")
+    else:
+        await callback.answer("Offer not found.", show_alert=True)
 
 @dp.message(Command("post_directory_info"))
 async def post_directory_info_handler(message: types.Message):
@@ -485,10 +533,6 @@ async def mark_offer_paid(callback: types.CallbackQuery):
     code = offer.get("code")
     total = float(offer["total"])
     commission = commission_of(total)
-    
-    for lo in locked_offers:
-        if lo.get("code") == code:
-            lo["paid"] = True
 
     save_data()
     await callback.answer("Deal marked as Paid & Completed!")
@@ -662,7 +706,7 @@ async def from_group_media_and_text(message: types.Message):
 
 @dp.message(F.chat.type == "private")
 async def from_buyer_media_and_text(message: types.Message):
-    global pending_connect_thread
+    global pending_connect_thread, next_buyer_number
     if message.text and message.text.startswith("/"):
         return
     if is_admin(message.from_user):
@@ -687,7 +731,9 @@ async def from_buyer_media_and_text(message: types.Message):
     thread_id = buyer_topics.get(buyer_id)
     if not thread_id:
         try:
-            topic = await bot.create_forum_topic(target_group_id, topic_name(message.from_user))
+            current_num = next_buyer_number
+            next_buyer_number += 1
+            topic = await bot.create_forum_topic(target_group_id, topic_name(message.from_user, current_num))
             thread_id = topic.message_thread_id
             buyer_topics[buyer_id] = thread_id
             topic_buyers[thread_id] = buyer_id
@@ -695,7 +741,7 @@ async def from_buyer_media_and_text(message: types.Message):
             save_data()
             await bot.send_message(
                 target_group_id,
-                f"New buyer for {v['chat_name']}: {buyer_label(message.from_user)}\nWrite here.",
+                f"New buyer #{current_num} for {v['chat_name']}: {buyer_label(message.from_user)}\nWrite here.",
                 message_thread_id=thread_id
             )
         except Exception as e:
@@ -708,7 +754,8 @@ async def from_buyer_media_and_text(message: types.Message):
     if message.photo:
         await bot.send_photo(target_group_id, message.photo[-1].file_id, caption=message.caption, message_thread_id=thread_id)
     elif message.document:
-        await bot.send_document(target_group_id, message.document.file_id, caption=message.caption, message_thread_id=thread_id)
+        box = message.document
+        await bot.send_document(target_group_id, box.file_id, caption=message.caption, message_thread_id=thread_id)
     elif message.text:
         await bot.send_message(target_group_id, message.text, message_thread_id=thread_id)
 
