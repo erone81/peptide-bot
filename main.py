@@ -19,7 +19,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = "/app/data" if os.path.exists("/app/data") else BASE_DIR
 DATA_PATH = os.path.join(DATA_DIR, "routes.json")
 
-# Подразбиращо се ID на основната търговска група за поръчки
 GROUP_ID = -1004387055068
 group_id = GROUP_ID
 
@@ -34,14 +33,16 @@ VENDORS = {
         "banner_path": os.path.join(BASE_DIR, "TidetronCatalogCoverHorizontal.jpg"),
         "catalog_path": os.path.join(BASE_DIR, "Tidetron Peptide Catalog(3).pdf"),
         "button_text": "💬 Chat with Tidetron",
-        "post_caption": (
+        "image_caption": (
             "<b>1. TIDETRON PEPTIDES</b>\n"
-            "✅ <b>Verified Vendor</b>\n\n"
+            "✅ <b>Verified Vendor</b>"
+        ),
+        "post_details": (
             "📍 <b>Warehouses:</b> China &amp; USA\n"
             "🚚 <b>Shipping:</b> 10–15 business days (Global) · 3–5 days (USA Domestic)\n"
             "💳 <b>Payment:</b> Alibaba Trade Assurance, PayPal, Apple Pay, Crypto, Wire Transfer\n\n"
             "━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "🛡️️ <b>COMPREHENSIVE BUYER GUARANTEE:</b>\n\n"
+            "🛡️ <b>COMPREHENSIVE BUYER GUARANTEE:</b>\n\n"
             "📦 <b>100% Guaranteed Delivery &amp; DDP Customs</b>\n"
             "All customs clearance, import tariffs, and duties are entirely handled and prepaid by the vendor (Delivered Duty Paid). Zero surprise fees for the recipient.\n\n"
             "🔄 <b>Full Reship Policy</b>\n"
@@ -279,7 +280,7 @@ async def start_handler(message: types.Message, command: CommandObject):
         await send_vendor_welcome(message, arg)
         return
     await message.answer(
-        "🛡 <b>Verified Vendors</b>\n\nChoose a vendor below to start chatting directly:",
+        "🛡️ <b>Verified Vendors</b>\n\nChoose a vendor below to start chatting directly:",
         reply_markup=vendor_list_keyboard(),
         parse_mode="HTML",
     )
@@ -327,7 +328,7 @@ async def post_directory_info_handler(message: types.Message):
     except Exception:
         pass
 
-# 2. Визитка на вендор
+# 2. Визитка на вендор (Снимка + Текст с гаранции + Бутон)
 @dp.message(Command("post_vendor"))
 async def post_vendor_card(message: types.Message, command: CommandObject):
     if not is_admin(message.from_user):
@@ -343,23 +344,24 @@ async def post_vendor_card(message: types.Message, command: CommandObject):
     thread_id = message.message_thread_id
 
     try:
+        # Първо качваме хоризонталната визия с кратко име
         if os.path.exists(banner_file):
             await bot.send_photo(
                 message.chat.id,
                 FSInputFile(banner_file),
-                caption=v["post_caption"],
-                reply_markup=public_vendor_keyboard(vendor_key),
+                caption=v["image_caption"],
                 parse_mode="HTML",
                 message_thread_id=thread_id
             )
-        else:
-            await bot.send_message(
-                message.chat.id,
-                v["post_caption"],
-                reply_markup=public_vendor_keyboard(vendor_key),
-                parse_mode="HTML",
-                message_thread_id=thread_id
-            )
+        
+        # Веднага под нея публикуваме детайлните гаранции и бутона за чат
+        await bot.send_message(
+            message.chat.id,
+            v["post_details"],
+            reply_markup=public_vendor_keyboard(vendor_key),
+            parse_mode="HTML",
+            message_thread_id=thread_id
+        )
     except Exception as e:
         print("Error posting vendor card:", e)
         await message.reply(f"Failed to post card: {e}")
