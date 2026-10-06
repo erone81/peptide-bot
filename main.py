@@ -303,6 +303,30 @@ async def open_vendor_callback(callback: types.CallbackQuery):
     vendor_key = callback.data.split(":", 1)[1]
     await send_vendor_welcome(callback.message, vendor_key)
 
+@dp.message(Command("commission"))
+async def commission_stats(message: types.Message):
+    if not is_admin(message.from_user):
+        return
+    
+    total_sales = sum(o.get("total", 0) for o in locked_offers)
+    total_comm = sum(o.get("commission", 0) for o in locked_offers)
+    unpaid_comm = sum(o.get("commission", 0) for o in locked_offers if not o.get("paid", False))
+    paid_comm = sum(o.get("commission", 0) for o in locked_offers if o.get("paid", False))
+    
+    text = (
+        f"📊 <b>COMMISSION &amp; SALES STATS</b>\n\n"
+        f"📦 Total Locked Offers: {len(locked_offers)}\n"
+        f"💰 Total Sales Volume: {money(total_sales)}\n"
+        f"💎 Total Commission (10%): {money(total_comm)}\n"
+        f"✅ Already Paid: {money(paid_comm)}\n"
+        f"⏳ <b>Remaining Due (Unpaid):</b> {money(unpaid_comm)}"
+    )
+    
+    try:
+        await message.answer(text, parse_mode="HTML", message_thread_id=message.message_thread_id)
+    except Exception:
+        await message.answer(text, parse_mode="HTML")
+
 @dp.message(Command("post_directory_info"))
 async def post_directory_info_handler(message: types.Message):
     if not is_admin(message.from_user):
@@ -442,7 +466,6 @@ async def confirm_offer(callback: types.CallbackQuery):
     
     sales_chat_id = offer.get("chat_id", GROUP_ID)
     
-    # Публикуваме съобщението в темата на клиента с бутон за плащане (който може да се натисне от вендора или админа)
     await bot.send_message(
         sales_chat_id,
         f"Locked.\n\nOffer: {code}\nTotal: {money(total)}\nCommission due: {money(commission)}\n\n"
@@ -463,7 +486,6 @@ async def mark_offer_paid(callback: types.CallbackQuery):
     total = float(offer["total"])
     commission = commission_of(total)
     
-    # Маркираме като платено в общия списък
     for lo in locked_offers:
         if lo.get("code") == code:
             lo["paid"] = True
@@ -479,7 +501,6 @@ async def mark_offer_paid(callback: types.CallbackQuery):
         parse_mode="HTML"
     )
 
-    # Пращаме и в архивната темата "Locked offers"
     try:
         sales_chat_id = offer.get("chat_id", GROUP_ID)
         thread = await proof_thread(sales_chat_id)
