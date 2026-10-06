@@ -56,11 +56,11 @@ def make_offer_keyboard():
         [InlineKeyboardButton(text="📝 Make offer", callback_data="start_make_offer")]
     ])
 
-# Бутон за публичната визитка в групата
+# Бутон за публичната визитка в раздела Verified Vendors
 def public_vendor_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
-            text="💬 Отвори Tidetron Peptides / Chat",
+            text="💬 Chat with Tidetron",
             url="https://t.me/TrustedPeptideVendorsBot?start=tidetron"
         )]
     ])
@@ -77,7 +77,7 @@ def commission_of(total):
 
 def clean_number(raw):
     text = (raw or "").strip().replace(" ", "")
-    if re.fullmatch(r"[0-9]{1,3}(?: mechanical[0-9]{3})+(?:\.[0-9]{1,2})?", text):
+    if re.fullmatch(r"[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,2})?", text):
         text = text.replace(",", "")
     elif re.fullmatch(r"[0-9]+,[0-9]{1,2}", text):
         text = text.replace(",", ".")
@@ -184,7 +184,11 @@ async def send_tidetron(message: types.Message):
             caption="📄 <b>Full price list</b>",
             parse_mode="HTML",
         )
-    await message.answer("💬 Continue with the vendor.\n\nJust write your message or send photo here.")
+    await message.answer(
+        "💬 <b>Continue with the vendor.</b>\n\n"
+        "Just write your message here.",
+        parse_mode="HTML"
+    )
 
 async def proof_thread():
     global proof_topic_id
@@ -230,7 +234,7 @@ async def vendor_tidetron(callback: types.CallbackQuery):
     await callback.answer()
     await send_tidetron(callback.message)
 
-# Команда за публикуване на визитката в темата Verified Vendors
+# Команда за публикуване на изчистената визитка в темата Verified Vendors
 @dp.message(Command("post_vendor"))
 async def post_vendor_card(message: types.Message):
     username = (message.from_user.username or "").lower()
@@ -238,12 +242,8 @@ async def post_vendor_card(message: types.Message):
         return
     
     caption_text = (
-        "✅ <b>Tidetron Peptides</b>\n"
-        "<i>Verified Vendor</i>\n\n"
-        "📍 <b>Warehouse:</b> China &amp; USA\n"
-        "🚚 <b>Shipping:</b> 10–15 days (China) · 3–5 days (USA)\n"
-        "💳 <b>Payment:</b> Alibaba, PayPal, Apple Pay, Crypto &amp; more\n\n"
-        "👇 <i>Натиснете бутона отдолу, за да отворите каталога и чата:</i>"
+        "<b>1. Tidetron Peptides</b>\n"
+        "🛡️ Verified Vendor"
     )
     
     thread_id = message.message_thread_id
