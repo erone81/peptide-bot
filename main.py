@@ -20,7 +20,8 @@ ADMIN_USERNAMES = ["g3orgel", "georgel"]
 # ==========================================
 VENDOR_ACCOUNTS = {
     # "liao_username": "tidetron",
-    # "novapure_person_username": "novapure"
+    # "novapure_person_username": "novapure",
+    # "handom_username": "handom"
 }
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -34,7 +35,7 @@ VENDORS = {
     "tidetron": {
         "name": "1. TIDETRON PEPTIDES",
         "chat_name": "TIDETRON PEPTIDES",
-        "sales_group_id": -1004387055068,  # Отделна група за Tidetron
+        "sales_group_id": -1004387055068,
         "banner_path": os.path.join(BASE_DIR, "TidetronCatalogCoverHorizontal.jpg"),
         "price_banner_path": os.path.join(BASE_DIR, "TidetronPriceListCover.png"),
         "catalogs": [
@@ -71,7 +72,7 @@ VENDORS = {
     "novapure": {
         "name": "2. NOVAPURE",
         "chat_name": "NOVAPURE",
-        "sales_group_id": -1003524946173,  # Новата отделна група за Novapure
+        "sales_group_id": -1003524946173,
         "banner_path": os.path.join(BASE_DIR, "MainCoverNovapure.jpg"),
         "price_banner_path": os.path.join(BASE_DIR, "NovapurePriceListCover.jpg"),
         "catalogs": [
@@ -105,6 +106,43 @@ VENDORS = {
             "📍 <b>Warehouse:</b> China &amp; USA\n"
             "🚚 <b>Shipping:</b> 10–15 days (China) · 3–5 days (USA)\n"
             "💳 <b>Payment:</b> Alibaba, PayPal, Apple Pay, Crypto &amp; more"
+        )
+    },
+    "handom": {
+        "name": "3. HANDOM CHEMICALS",
+        "chat_name": "HANDOM CHEMICALS",
+        "sales_group_id": -1000000000000,  # Замени с ID-то на новата група за Handom
+        "banner_path": os.path.join(BASE_DIR, "HandomChemMainCover.jpg"),
+        "price_banner_path": os.path.join(BASE_DIR, "HandomCoverPriceList.jpg"),
+        "catalogs": [
+            os.path.join(BASE_DIR, "PRICE LIST - PEPTIDES(2026.09.16).pdf")
+        ],
+        "button_text": "💬 Chat with Handom Chem 🟢",
+        "image_caption": (
+            "<b>3. HANDOM CHEMICALS</b>\n"
+            "✅ <b>Verified Vendor</b>"
+        ),
+        "post_details": (
+            "📍 <b>Warehouse:</b> China\n"
+            "🚚 <b>Shipping:</b> 10–15 business days (Global)\n"
+            "💳 <b>Payment:</b> Alibaba Trade Assurance, PayPal, Crypto, Wire Transfer\n\n"
+            "━━━━━━━━━━━━\n\n"
+            "🛡️ <b>COMPREHENSIVE BUYER GUARANTEE:</b>\n\n"
+            "📦 <b>100% Guaranteed Delivery &amp; DDP Customs</b>\n"
+            "All customs clearance, import tariffs, and duties are entirely handled and prepaid by the vendor (Delivered Duty Paid). Zero surprise fees for the recipient.\n\n"
+            "🔄 <b>Full Reship Policy</b>\n"
+            "In the rare event of transit damage, loss, or customs seizure, your entire order is reshipped immediately free of charge at the vendor’s expense.\n\n"
+            "🧪 <b>Blind Lab Testing &amp; Quality Shield</b>\n"
+            "Every batch is produced under strict compliance standards. If an independent test from an accredited, internationally recognized 3rd-party laboratory reveals sub-standard purity (&lt;98%) or incorrect quantity:\n"
+            "• 100% refund of the full product value\n"
+            "• 100% direct reimbursement of the testing laboratory fee"
+        ),
+        "chat_card": (
+            "<b>HANDOM CHEMICALS</b>\n"
+            "✅ <b>Verified Vendor</b>\n\n"
+            "📍 <b>Warehouse:</b> China\n"
+            "🚚 <b>Shipping:</b> 10–15 days\n"
+            "💳 <b>Payment:</b> Alibaba, PayPal, Crypto &amp; more"
         )
     }
 }
@@ -313,12 +351,15 @@ async def send_vendor_welcome(message: types.Message, vendor_key: str):
     catalogs = v.get("catalogs", [])
     for idx, cat_path in enumerate(catalogs):
         if os.path.exists(cat_path):
-            if idx == 0:
-                caption_text = "💰 <b>Peptides Price List (PDF)</b>"
-            elif idx == 1:
-                caption_text = "💰 <b>Oils Price List (PDF)</b>"
+            if vendor_key == "novapure":
+                if idx == 0:
+                    caption_text = "💰 <b>Peptides Price List (PDF)</b>"
+                elif idx == 1:
+                    caption_text = "💰 <b>Oils Price List (PDF)</b>"
+                else:
+                    caption_text = "💰 <b>Tablets Price List (PDF)</b>"
             else:
-                caption_text = "💰 <b>Tablets Price List (PDF)</b>"
+                caption_text = "💰 <b>Price List (PDF)</b>"
             
             await message.answer_document(
                 FSInputFile(cat_path),
