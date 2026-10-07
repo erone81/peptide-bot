@@ -221,7 +221,7 @@ def public_vendor_keyboard(vendor_key: str):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text=label,
-            url=f"https://t.me/TrustedPeptideVendorsBot?start={vendor_key}"
+            url=f"https://t.me/TrustedVendorsNewBot?start={vendor_key}"
         )]
     ])
 
