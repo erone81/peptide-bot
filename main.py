@@ -15,24 +15,27 @@ dp = Dispatcher()
 ADMIN_IDS = [8912162282]
 ADMIN_USERNAMES = ["g3orgel", "georgel"]
 
-# Тук добавяш юзърнеймите на вендорите (например на Tidetron и Novapure), за да виждат /commission без право на маркиране
-VENDOR_USERNAMES = []
+# ==========================================
+# МАПВАНЕ НА ВЕНДОРСКИ ЮЗЪРНЕЙМИ КЪМ КЛЮЧ
+# ==========================================
+# Тук описваш кой юзърнейм към кои вендори принадлежи (напр. Лиао за tidetron и т.н.)
+VENDOR_ACCOUNTS = {
+    # "liao_username": "tidetron",
+    # "novapure_person_username": "novapure"
+}
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = "/app/data" if os.path.exists("/app/data") else BASE_DIR
 DATA_PATH = os.path.join(DATA_DIR, "routes.json")
 
-GROUP_ID = -1004387055068
-group_id = GROUP_ID
-
 # ==========================================
-# КОНФИГУРАЦИЯ НА ВЕНДОРИТЕ
+# КОНФИГУРАЦИЯ НА ВЕНДОРИТЕ И ОТДЕЛНИТЕ ГРУПИ
 # ==========================================
 VENDORS = {
     "tidetron": {
         "name": "1. TIDETRON PEPTIDES",
         "chat_name": "TIDETRON PEPTIDES",
-        "sales_group_id": -1004387055068,
+        "sales_group_id": -1004387055068,  # Отделна група за Tidetron
         "banner_path": os.path.join(BASE_DIR, "TidetronCatalogCoverHorizontal.jpg"),
         "price_banner_path": os.path.join(BASE_DIR, "TidetronPriceListCover.png"),
         "catalogs": [
@@ -69,7 +72,7 @@ VENDORS = {
     "novapure": {
         "name": "2. NOVAPURE",
         "chat_name": "NOVAPURE",
-        "sales_group_id": -1004387055068,
+        "sales_group_id": -1003524946173,  # Новата отделна група за Novapure
         "banner_path": os.path.join(BASE_DIR, "MainCoverNovapure.jpg"),
         "price_banner_path": os.path.join(BASE_DIR, "NovapurePriceListCover.jpg"),
         "catalogs": [
@@ -135,12 +138,17 @@ def is_admin(user: types.User) -> bool:
         return True
     return False
 
+def get_vendor_key_for_user(user: types.User) -> str:
+    if not user or not user.username:
+        return None
+    return VENDOR_ACCOUNTS.get(user.username.lower())
+
 def can_view_commission(user: types.User) -> bool:
     if not user:
         return False
     if is_admin(user):
         return True
-    if user.username and user.username.lower() in [v.lower() for v in VENDOR_USERNAMES]:
+    if user.username and user.username.lower() in [v.lower() for v in VENDOR_ACCOUNTS.keys()]:
         return True
     return False
 
@@ -242,7 +250,6 @@ def save_data():
         with open(DATA_PATH, "w", encoding="utf-8") as f:
             json.dump(
                 {
-                    "group_id": group_id,
                     "buyer_topics": buyer_topics,
                     "topic_buyers": topic_buyers,
                     "topic_vendors": topic_vendors,
@@ -262,14 +269,13 @@ def save_data():
         print(f"Error saving data: {e}")
 
 def load_data():
-    global group_id, buyer_topics, topic_buyers, topic_vendors, buyer_active_vendor, buyer_names
+    global buyer_topics, topic_buyers, topic_vendors, buyer_active_vendor, buyer_names
     global pending, locked_offers, next_offer_number, next_buyer_number, proof_topic_id
     if not os.path.exists(DATA_PATH):
         return
     try:
         with open(DATA_PATH, encoding="utf-8") as f:
             data = json.load(f)
-        group_id = data.get("group_id") or GROUP_ID
         buyer_topics = {int(k): v for k, v in data.get("buyer_topics", {}).items()}
         topic_buyers = {int(k): v for k, v in data.get("topic_buyers", {}).items()}
         topic_vendors = {int(k): v for k, v in data.get("topic_vendors", {}).items()}
@@ -378,14 +384,24 @@ async def commission_stats(message: types.Message):
     if not can_view_commission(message.from_user):
         return
     
-    total_sales = sum(o.get("total", 0) for o in locked_offers)
-    total_comm = sum(o.get("commission", 0) for o in locked_offers)
-    unpaid_comm = sum(o.get("commission", 0) for o in locked_offers if not o.get("paid", False))
-    paid_comm = sum(o.get("commission", 0) for o in locked_offers if o.get("paid", False))
+    user_vendor = get_vendor_key_for_user(message.from_user)
+    
+    if user_vendor:
+        filtered_offers = [o for o in locked_offers if o.get("vendor_key") == user_vendor]
+        vendor_title = VENDORS.get(user_vendor, {}).get("chat_name", user_vendor.upper())
+        header_title = f"📊 <b>COMMISSION &amp; SALES STATS ({vendor_title})</b>"
+    else:
+        filtered_offers = locked_offers
+        header_title = "📊 <b>COMMISSION &amp; SALES STATS (ALL VENDORS)</b>"
+
+    total_sales = sum(o.get("total", 0) for o in filtered_offers)
+    total_comm = sum(o.get("commission", 0) for o in filtered_offers)
+    unpaid_comm = sum(o.get("commission", 0) for o in filtered_offers if not o.get("paid", False))
+    paid_comm = sum(o.get("commission", 0) for o in filtered_offers if o.get("paid", False))
     
     summary = (
-        f"📊 <b>COMMISSION &amp; SALES STATS</b>\n\n"
-        f"📦 Total Locked Offers: {len(locked_offers)}\n"
+        f"{header_title}\n\n"
+        f"📦 Total Locked Offers: {len(filtered_offers)}\n"
         f"💰 Total Sales Volume: {money(total_sales)}\n"
         f"💎 Total Commission (10%): {money(total_comm)}\n"
         f"✅ Already Paid: {money(paid_comm)}\n"
@@ -399,7 +415,7 @@ async def commission_stats(message: types.Message):
     except Exception:
         await message.answer(summary, parse_mode="HTML")
 
-    unpaid_list = [o for o in locked_offers if not o.get("paid", False)]
+    unpaid_list = [o for o in filtered_offers if not o.get("paid", False)]
     if not unpaid_list:
         await message.answer("🎉 No unpaid commissions! All deals are settled.", message_thread_id=message.message_thread_id)
         return
@@ -411,8 +427,11 @@ async def commission_stats(message: types.Message):
         buyer_name = buyer_names.get(o.get("buyer_id"), "Buyer")
         total = o.get("total", 0)
         comm = o.get("commission", 0)
+        v_key = o.get("vendor_key", "tidetron")
+        v_name = VENDORS.get(v_key, {}).get("chat_name", "")
+        
         txt = (
-            f"🏷️ <b>Offer:</b> {code}\n"
+            f"🏷️ <b>Offer:</b> {code} | 🏢 <b>Vendor:</b> {v_name}\n"
             f"👤 <b>Buyer:</b> {buyer_name}\n"
             f"💰 <b>Total:</b> {money(total)} | 💎 <b>Commission:</b> <b>{money(comm)}</b>"
         )
@@ -577,6 +596,7 @@ async def confirm_offer(callback: types.CallbackQuery):
         "total": total,
         "commission": commission,
         "buyer_id": offer["buyer_id"],
+        "vendor_key": offer.get("vendor_key", "tidetron"),
         "text": offer["text"],
         "paid": False
     }
@@ -586,7 +606,7 @@ async def confirm_offer(callback: types.CallbackQuery):
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(f"Offer {code} is confirmed.\n\n{buyer_offer_text(offer)}\n\nThis is the final offer.")
     
-    sales_chat_id = offer.get("chat_id", GROUP_ID)
+    sales_chat_id = offer.get("chat_id", VENDORS[offer.get("vendor_key", "tidetron")]["sales_group_id"])
     
     await bot.send_message(
         sales_chat_id,
@@ -620,10 +640,11 @@ async def mark_offer_paid(callback: types.CallbackQuery):
     )
 
     try:
-        sales_chat_id = offer.get("chat_id", GROUP_ID)
+        vendor_key = offer.get("vendor_key", "tidetron")
+        sales_chat_id = VENDORS[vendor_key]["sales_group_id"]
         thread = await proof_thread(sales_chat_id)
         who = buyer_names.get(offer["buyer_id"], "Unknown buyer")
-        vendor_name = VENDORS.get(offer.get("vendor_key", "tidetron"), {}).get("chat_name", "Vendor")
+        vendor_name = VENDORS.get(vendor_key, {}).get("chat_name", "Vendor")
         await bot.send_message(
             sales_chat_id,
             f"🟢 <b>PAID &amp; COMPLETED OFFER</b>\n\n"
@@ -647,7 +668,7 @@ async def change_offer(callback: types.CallbackQuery):
     save_data()
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer("Nothing was saved. Write what you want to change.")
-    target_chat = offer.get("chat_id", GROUP_ID)
+    target_chat = offer.get("chat_id", VENDORS[offer.get("vendor_key", "tidetron")]["sales_group_id"])
     await bot.send_message(target_chat, "The buyer wants a change. Nothing was saved.", message_thread_id=offer["thread_id"])
 
 @dp.message(F.chat.type.in_({"group", "supergroup"}), ~F.text.startswith("/"))
