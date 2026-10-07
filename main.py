@@ -76,7 +76,7 @@ VENDORS = {
         "price_banner_path": os.path.join(BASE_DIR, "NovapurePriceListCover.jpg"),
         "catalogs": [
             os.path.join(BASE_DIR, "Novapure Peptide Product Price List (2026).pdf"),
-            os.path.join(BASE_DIR, "Novapure Oil Price List (2026) (3).pdf"),
+            os.path.join(BASE_DIR, "NovapureOilPriceList(2026)(3).pdf"),
             os.path.join(BASE_DIR, "Novapure Tablet Product Price List (2026).pdf")
         ],
         "button_text": "💬 Chat with Novapure 🟢",
