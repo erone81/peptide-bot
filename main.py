@@ -826,8 +826,8 @@ async def from_buyer_media_and_text(message: types.Message):
     global pending_connect_thread, next_buyer_number
     if message.text and message.text.startswith("/"):
         return
-    if is_admin(message.from_user):
-        return
+    # if is_admin(message.from_user):
+    #     return
 
     buyer_id = message.from_user.id
     buyer_names[buyer_id] = buyer_label(message.from_user)
