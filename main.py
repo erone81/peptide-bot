@@ -12,8 +12,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-ADMIN_IDS = [8912162282]
-ADMIN_USERNAMES = ["g3orgel", "georgel"]
+# Временно изчистени за тест от твоя личен акаунт (ще ги върнем после)
+ADMIN_IDS = []
+ADMIN_USERNAMES = []
 
 # ==========================================
 # МАПВАНЕ НА ВЕНДОРСКИ ЮЗЪРНЕЙМИ КЪМ КЛЮЧ
