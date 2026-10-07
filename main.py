@@ -15,6 +15,9 @@ dp = Dispatcher()
 ADMIN_IDS = [8912162282]
 ADMIN_USERNAMES = ["g3orgel", "georgel"]
 
+# Тук добавяш юзърнеймите на вендорите (например на Tidetron и Novapure), за да виждат /commission без право на маркиране
+VENDOR_USERNAMES = []
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = "/app/data" if os.path.exists("/app/data") else BASE_DIR
 DATA_PATH = os.path.join(DATA_DIR, "routes.json")
@@ -32,7 +35,9 @@ VENDORS = {
         "sales_group_id": -1004387055068,
         "banner_path": os.path.join(BASE_DIR, "TidetronCatalogCoverHorizontal.jpg"),
         "price_banner_path": os.path.join(BASE_DIR, "TidetronPriceListCover.png"),
-        "catalog_path": os.path.join(BASE_DIR, "Tidetron Peptide Catalog(3).pdf"),
+        "catalogs": [
+            os.path.join(BASE_DIR, "Tidetron Peptide Catalog(3).pdf")
+        ],
         "button_text": "💬 Chat with Tidetron 🟢",
         "image_caption": (
             "<b>1. TIDETRON PEPTIDES</b>\n"
@@ -55,6 +60,45 @@ VENDORS = {
         ),
         "chat_card": (
             "<b>TIDETRON PEPTIDES</b>\n"
+            "✅ <b>Verified Vendor</b>\n\n"
+            "📍 <b>Warehouse:</b> China &amp; USA\n"
+            "🚚 <b>Shipping:</b> 10–15 days (China) · 3–5 days (USA)\n"
+            "💳 <b>Payment:</b> Alibaba, PayPal, Apple Pay, Crypto &amp; more"
+        )
+    },
+    "novapure": {
+        "name": "2. NOVAPURE",
+        "chat_name": "NOVAPURE",
+        "sales_group_id": -1004387055068,
+        "banner_path": os.path.join(BASE_DIR, "MainCoverNovapure.jpg"),
+        "price_banner_path": os.path.join(BASE_DIR, "NovapurePriceListCover.jpg"),
+        "catalogs": [
+            os.path.join(BASE_DIR, "Novapure Peptide Product Price List (2026).pdf"),  # 1-рият е пептидният
+            os.path.join(BASE_DIR, "Novapure Oil Price List (2026) (3).pdf"),
+            os.path.join(BASE_DIR, "Novapure Tablet Product Price List (2026).pdf")
+        ],
+        "button_text": "💬 Chat with Novapure 🟢",
+        "image_caption": (
+            "<b>2. NOVAPURE</b>\n"
+            "✅ <b>Verified Vendor</b>"
+        ),
+        "post_details": (
+            "📍 <b>Warehouses:</b> China &amp; USA\n"
+            "🚚 <b>Shipping:</b> 10–15 business days (Global) · 3–5 days (USA Domestic)\n"
+            "💳 <b>Payment:</b> Alibaba Trade Assurance, PayPal, Apple Pay, Crypto, Wire Transfer\n\n"
+            "━━━━━━━━━━━━\n\n"
+            "🛡️ <b>COMPREHENSIVE BUYER GUARANTEE:</b>\n\n"
+            "📦 <b>100% Guaranteed Delivery &amp; DDP Customs</b>\n"
+            "All customs clearance, import tariffs, and duties are entirely handled and prepaid by the vendor (Delivered Duty Paid). Zero surprise fees for the recipient.\n\n"
+            "🔄 <b>Full Reship Policy</b>\n"
+            "In the rare event of transit damage, loss, or customs seizure, your entire order is reshipped immediately free of charge at the vendor’s expense.\n\n"
+            "🧪 <b>Blind Lab Testing &amp; Quality Shield</b>\n"
+            "Every batch is produced under strict cGMP compliance. If an independent test from an accredited, internationally recognized 3rd-party laboratory (such as Janoshik or equivalent ISO 17025 accredited facility) reveals sub-standard purity (&lt;98%) or incorrect quantity:\n"
+            "• 100% refund of the full product value\n"
+            "• 100% direct reimbursement of the testing laboratory fee"
+        ),
+        "chat_card": (
+            "<b>NOVAPURE</b>\n"
             "✅ <b>Verified Vendor</b>\n\n"
             "📍 <b>Warehouse:</b> China &amp; USA\n"
             "🚚 <b>Shipping:</b> 10–15 days (China) · 3–5 days (USA)\n"
@@ -91,6 +135,15 @@ def is_admin(user: types.User) -> bool:
         return True
     return False
 
+def can_view_commission(user: types.User) -> bool:
+    if not user:
+        return False
+    if is_admin(user):
+        return True
+    if user.username and user.username.lower() in [v.lower() for v in VENDOR_USERNAMES]:
+        return True
+    return False
+
 def vendor_list_keyboard():
     buttons = []
     for key, data in VENDORS.items():
@@ -100,7 +153,7 @@ def vendor_list_keyboard():
 def confirm_keyboard(key):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Confirm", callback_data=f"yes:{key}")],
-        [InlineKeyboardButton(text="✏️ Change something", callback_data=f"no:{key}")],
+        [InlineKeyboardButton(text="✏ Change something", callback_data=f"no:{key}")],
     ])
 
 def make_offer_keyboard():
@@ -252,12 +305,21 @@ async def send_vendor_welcome(message: types.Message, vendor_key: str):
             parse_mode="HTML"
         )
 
-    if os.path.exists(v["catalog_path"]):
-        await message.answer_document(
-            FSInputFile(v["catalog_path"]),
-            caption="💰 <b>Full Price List (PDF)</b>",
-            parse_mode="HTML",
-        )
+    catalogs = v.get("catalogs", [])
+    for idx, cat_path in enumerate(catalogs):
+        if os.path.exists(cat_path):
+            if idx == 0:
+                caption_text = "💰 <b>Peptides Price List (PDF)</b>"
+            elif idx == 1:
+                caption_text = "💰 <b>Oils Price List (PDF)</b>"
+            else:
+                caption_text = "💰 <b>Tablets Price List (PDF)</b>"
+            
+            await message.answer_document(
+                FSInputFile(cat_path),
+                caption=caption_text,
+                parse_mode="HTML",
+            )
     
     await message.answer(
         "💬 <b>Continue with the vendor.</b>\n\n"
@@ -313,7 +375,7 @@ async def open_vendor_callback(callback: types.CallbackQuery):
 
 @dp.message(Command("commission"))
 async def commission_stats(message: types.Message):
-    if not is_admin(message.from_user):
+    if not can_view_commission(message.from_user):
         return
     
     total_sales = sum(o.get("total", 0) for o in locked_offers)
@@ -326,7 +388,7 @@ async def commission_stats(message: types.Message):
         f"📦 Total Locked Offers: {len(locked_offers)}\n"
         f"💰 Total Sales Volume: {money(total_sales)}\n"
         f"💎 Total Commission (10%): {money(total_comm)}\n"
-        f"✅ Already Paid to You: {money(paid_comm)}\n"
+        f"✅ Already Paid: {money(paid_comm)}\n"
         f"⏳ <b>Remaining Due (Unpaid):</b> {money(unpaid_comm)}\n\n"
         f"━━━━━━━━━━━━\n"
         f"📌 <b>UNPAID DEALS BREAKDOWN:</b>"
@@ -342,6 +404,8 @@ async def commission_stats(message: types.Message):
         await message.answer("🎉 No unpaid commissions! All deals are settled.", message_thread_id=message.message_thread_id)
         return
 
+    admin_user = is_admin(message.from_user)
+
     for o in unpaid_list:
         code = o.get("code")
         buyer_name = buyer_names.get(o.get("buyer_id"), "Buyer")
@@ -353,12 +417,22 @@ async def commission_stats(message: types.Message):
             f"💰 <b>Total:</b> {money(total)} | 💎 <b>Commission:</b> <b>{money(comm)}</b>"
         )
         try:
-            await message.answer(txt, parse_mode="HTML", message_thread_id=message.message_thread_id, reply_markup=mark_comm_keyboard(code))
+            if admin_user:
+                await message.answer(txt, parse_mode="HTML", message_thread_id=message.message_thread_id, reply_markup=mark_comm_keyboard(code))
+            else:
+                await message.answer(txt, parse_mode="HTML", message_thread_id=message.message_thread_id)
         except Exception:
-            await message.answer(txt, parse_mode="HTML", reply_markup=mark_comm_keyboard(code))
+            if admin_user:
+                await message.answer(txt, parse_mode="HTML", reply_markup=mark_comm_keyboard(code))
+            else:
+                await message.answer(txt, parse_mode="HTML")
 
 @dp.callback_query(F.data.startswith("mark_paid:"))
 async def mark_commission_paid(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user):
+        await callback.answer("Only the administrator can mark commissions as paid.", show_alert=True)
+        return
+
     code = callback.data.split(":", 1)[1]
     found = False
     for o in locked_offers:
@@ -684,9 +758,10 @@ async def from_group_media_and_text(message: types.Message):
                 caption=f"{header}{message.caption}" if message.caption else None
             )
         elif message.document:
+            box = message.document
             await bot.send_document(
                 buyer_id,
-                message.document.file_id,
+                box.file_id,
                 caption=f"{header}{message.caption}" if message.caption else None
             )
         elif message.text:
