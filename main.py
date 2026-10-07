@@ -111,7 +111,7 @@ VENDORS = {
     "handom": {
         "name": "3. HANDOM CHEMICALS",
         "chat_name": "HANDOM CHEMICALS",
-        "sales_group_id": -1000000000000,  # Замени с ID-то на новата група за Handom
+        "sales_group_id": -1003218055865,
         "banner_path": os.path.join(BASE_DIR, "HandomChemMainCover.jpg"),
         "price_banner_path": os.path.join(BASE_DIR, "HandomCoverPriceList.jpg"),
         "catalogs": [
