@@ -19,8 +19,8 @@ ADMIN_USERNAMES = ["g3orgel", "georgel"]
 # МАПВАНЕ НА ВЕНДОРСКИ ЮЗЪРНЕЙМИ КЪМ КЛЮЧ
 # ==========================================
 VENDOR_ACCOUNTS = {
+    "novapure_li": "novapure",
     # "liao_username": "tidetron",
-    # "novapure_person_username": "novapure",
     # "handom_username": "handom"
 }
 
