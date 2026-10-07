@@ -12,9 +12,8 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Временно изчистени за тест от твоя личен акаунт (ще ги върнем после)
-ADMIN_IDS = []
-ADMIN_USERNAMES = []
+ADMIN_IDS = [8912162282]
+ADMIN_USERNAMES = ["g3orgel", "georgel"]
 
 # ==========================================
 # МАПВАНЕ НА ВЕНДОРСКИ ЮЗЪРНЕЙМИ КЪМ КЛЮЧ
@@ -779,7 +778,6 @@ async def from_group_media_and_text(message: types.Message):
                 "💰 <b>Total amount not detected.</b>\n"
                 "Please type the final total amount in USD (e.g. 150):\n\n"
                 "请输入最终总金额（USD）：",
-                message_thread_id=thread_id,
                 parse_mode="HTML"
             )
             return
