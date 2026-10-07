@@ -18,7 +18,6 @@ ADMIN_USERNAMES = ["g3orgel", "georgel"]
 # ==========================================
 # МАПВАНЕ НА ВЕНДОРСКИ ЮЗЪРНЕЙМИ КЪМ КЛЮЧ
 # ==========================================
-# Тук описваш кой юзърнейм към кои вендори принадлежи (напр. Лиао за tidetron и т.н.)
 VENDOR_ACCOUNTS = {
     # "liao_username": "tidetron",
     # "novapure_person_username": "novapure"
@@ -76,7 +75,7 @@ VENDORS = {
         "banner_path": os.path.join(BASE_DIR, "MainCoverNovapure.jpg"),
         "price_banner_path": os.path.join(BASE_DIR, "NovapurePriceListCover.jpg"),
         "catalogs": [
-            os.path.join(BASE_DIR, "Novapure Peptide Product Price List (2026).pdf"),  # 1-рият е пептидният
+            os.path.join(BASE_DIR, "Novapure Peptide Product Price List (2026).pdf"),
             os.path.join(BASE_DIR, "Novapure Oil Price List (2026) (3).pdf"),
             os.path.join(BASE_DIR, "Novapure Tablet Product Price List (2026).pdf")
         ],
