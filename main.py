@@ -157,7 +157,6 @@ locked_offers = []
 next_offer_number = 1001
 next_buyer_number = 1
 proof_topic_id = None
-lock_button_ids = {}
 waiting_offer_text = {}
 waiting_total = {}
 pending_connect_thread = None
@@ -381,14 +380,6 @@ async def proof_thread(sales_group_id):
     proof_topic_id = topic.message_thread_id
     save_data()
     return proof_topic_id
-
-async def clear_lock_button(chat_id, thread_id):
-    message_id = lock_button_ids.pop(thread_id, None)
-    if message_id:
-        try:
-            await bot.delete_message(chat_id, message_id)
-        except Exception:
-            pass
 
 async def send_confirm_card(key, offer):
     offer["status"] = "waiting"
@@ -808,6 +799,7 @@ async def from_group_media_and_text(message: types.Message):
         await message.reply("Do not write the commission in the message.")
         return
 
+    # Само препращаме съобщението/медията към клиента, БЕЗ да набиваме излишни бутони за оферта
     vendor_name = VENDORS.get(vendor_key, {}).get("chat_name", "Vendor")
     header = f"{vendor_name}:\n\n"
     try:
@@ -828,16 +820,6 @@ async def from_group_media_and_text(message: types.Message):
             await bot.send_message(buyer_id, f"{header}{message.text}")
     except Exception:
         await message.reply("The message was not delivered to the buyer.")
-        return
-
-    await clear_lock_button(message.chat.id, thread_id)
-    sent = await bot.send_message(
-        message.chat.id,
-        "Create an official offer card?\n创建正式报价单？",
-        message_thread_id=thread_id,
-        reply_markup=make_offer_keyboard(),
-    )
-    lock_button_ids[thread_id] = sent.message_id
 
 @dp.message(F.chat.type == "private")
 async def from_buyer_media_and_text(message: types.Message):
