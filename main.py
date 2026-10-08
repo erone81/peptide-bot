@@ -12,6 +12,11 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
+# --- ДОБАВЕНО ЗА ДЕМОТО ---
+from demo import router as demo_router
+dp.include_router(demo_router)
+# --------------------------
+
 ADMIN_IDS = [8912162282]
 ADMIN_USERNAMES = ["g3orgel", "georgel"]
 
