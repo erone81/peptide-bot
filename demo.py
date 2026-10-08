@@ -56,21 +56,26 @@ async def pause(bot: Bot, chat_id: int, seconds: float, action: ChatAction = Cha
 
 async def progress(bot: Bot, chat_id: int, stages: list[str]) -> Message:
     n = len(stages)
-    msg = await bot.send_message(chat_id, f"{'▱' * n}  {stages[0]}")
+    msg = await bot.send_message(chat_id, f"{'▱' * n}  {stages[0]}", parse_mode="HTML")
     for i, stage in enumerate(stages, 1):
         await asyncio.sleep(0.9)
         with suppress(TelegramBadRequest):
-            await msg.edit_text(f"{'▰' * i}{'▱' * (n - i)}  {stage}")
+            await msg.edit_text(f"{'▰' * i}{'▱' * (n - i)}  {stage}", parse_mode="HTML")
     await asyncio.sleep(0.6)
     return msg
 
 async def mark(cb: CallbackQuery, label: str) -> None:
     m = cb.message
     if m is None: return
-    text = f"{m.html_text}\n\n▸ <b>{label}</b>"
+    
+    # Взимаме текста правилно, дори ако не е имало форматиране
+    base_text = m.html_text if m.html_text else m.text
+    if not base_text: base_text = ""
+    
+    text = f"{base_text}\n\n▸ <b>{label}</b>"
     with suppress(TelegramBadRequest):
-        if m.caption: await m.edit_caption(caption=text, reply_markup=None)
-        else: await m.edit_text(text, reply_markup=None)
+        if m.caption: await m.edit_caption(caption=text, reply_markup=None, parse_mode="HTML")
+        else: await m.edit_text(text, reply_markup=None, parse_mode="HTML")
 
 def _pdf_bytes(title: str, lines: list[str]) -> bytes:
     def esc(s: str) -> bytes: return s.encode("cp1252", "replace").replace(b"\\", b"\\\\").replace(b"(", b"\\(").replace(b")", b"\\)")
@@ -91,7 +96,7 @@ def _pdf_bytes(title: str, lines: list[str]) -> bytes:
     return bytes(pdf)
 
 async def run_intro(bot: Bot, chat_id: int) -> None:
-    await bot.send_message(chat_id, "✨ <b>DEMO MODE</b> ✨")
+    await bot.send_message(chat_id, "✨ <b>DEMO MODE</b> ✨", parse_mode="HTML")
     await pause(bot, chat_id, 1.4)
     await bot.send_message(
         chat_id,
@@ -101,21 +106,21 @@ async def run_intro(bot: Bot, chat_id: int) -> None:
         "🎭 <b>You</b> = your future client\n"
         "🪄 <b>Me</b> = your 24/7 automated sales assistant\n\n"
         "<i>No setup. No signup. Just tap.</i>",
-        reply_markup=kb([("🎬 Start the tour", DemoData(a="begin"))], [("⏭ Skip to the summary", DemoData(a="finale"))])
+        reply_markup=kb([("🎬 Start the tour", DemoData(a="begin"))], [("⏭ Skip to the summary", DemoData(a="finale"))]),
+        parse_mode="HTML"
     )
 
-# Улавя САМО /start demo или линк със start=demo
 @router.message(F.text.startswith("/start demo"))
 async def demo_entry(message: Message, bot: Bot) -> None:
     await run_intro(bot, message.chat.id)
 
 @router.callback_query(DemoData.filter(F.a == "restart"))
-async def on_restart(cb: CallbackQuery, bot: Bot) -> None:
+async def on_restart(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
     await cb.answer()
     await run_intro(bot, cb.message.chat.id)
 
 @router.callback_query(DemoData.filter(F.a == "begin"))
-async def on_begin(cb: CallbackQuery, bot: Bot) -> None:
+async def on_begin(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
     await cb.answer()
     cid = cb.message.chat.id
     await mark(cb, "🎬 Let's go!")
@@ -127,6 +132,7 @@ async def on_begin(cb: CallbackQuery, bot: Bot) -> None:
         "No website, no contact form, no waiting.\n\n"
         "👋 <b>Hi! What are you looking for?</b>",
         reply_markup=kb(*[[(f"{e} {n}", DemoData(a="svc", s=code))] for code, (e, n) in SERVICES.items()]),
+        parse_mode="HTML"
     )
 
 @router.callback_query(DemoData.filter(F.a == "svc"))
@@ -140,6 +146,7 @@ async def on_service(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> No
         cid,
         f"Great choice! {e}\n\n📅 <b>When do you need it?</b>",
         reply_markup=kb(*[[(f"📅 {label}", DemoData(a="date", s=s, d=code))] for code, label in DATES.items()]),
+        parse_mode="HTML"
     )
 
 @router.callback_query(DemoData.filter(F.a == "date"))
@@ -152,6 +159,7 @@ async def on_date(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
         cid,
         "💰 <b>And your approximate budget?</b>\n<i>Just a rough range, it helps tailor the offer.</i>",
         reply_markup=kb(*[[(f"💰 {label}", DemoData(a="bud", s=s, d=d, b=code))] for code, (label, _) in BUDGETS.items()]),
+        parse_mode="HTML"
     )
 
 @router.callback_query(DemoData.filter(F.a == "bud"))
@@ -168,7 +176,7 @@ async def on_budget(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> Non
     await pause(bot, cid, 1.0)
     prog = await progress(bot, cid, ["Packing your request…", "Opening your private chat…", f"Notifying {DEMO_VENDOR}…"])
     with suppress(TelegramBadRequest):
-        await prog.edit_text("✅ <b>Request sent!</b>\n\n" f"{DEMO_VENDOR} usually replies within minutes. I'll message you here the second they do. 🔔")
+        await prog.edit_text("✅ <b>Request sent!</b>\n\n" f"{DEMO_VENDOR} usually replies within minutes. I'll message you here the second they do. 🔔", parse_mode="HTML")
     await asyncio.sleep(2.2)
 
     await bot.send_message(
@@ -186,12 +194,14 @@ async def on_budget(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> Non
             "🔔 You get notified instantly.\n"
             "👥 You just type naturally to reply.",
         ),
+        parse_mode="HTML"
     )
     await asyncio.sleep(2.5)
     await bot.send_message(
         cid,
         "Now flip the script. 🔄\nYou're the vendor, and the client is waiting…",
         reply_markup=kb([("💼 Reply as the vendor", DemoData(a="offer", s=s, d=d, b=b))]),
+        parse_mode="HTML"
     )
 
 @router.callback_query(DemoData.filter(F.a == "offer"))
@@ -209,6 +219,7 @@ async def on_offer(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None
         "🎬 <b>Step 2/4 · The vendor's move</b>\n\n"
         "Inside the topic, you simply tap the pinned <b>📝 Make offer</b> button, type the details, and hit Send.\n"
         f"<i>{DEMO_VENDOR} is typing…</i>",
+        parse_mode="HTML"
     )
     await pause(bot, cid, 3.8)
 
@@ -225,7 +236,7 @@ async def on_offer(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None
         [("✅ I agree", DemoData(a="accept", s=s, d=d, b=b))],
         [("💬 Ask a question", DemoData(a="ask"))],
     )
-    await bot.send_message(cid, caption, reply_markup=markup)
+    await bot.send_message(cid, caption, reply_markup=markup, parse_mode="HTML")
 
     await pause(bot, cid, 1.6, ChatAction.UPLOAD_DOCUMENT)
     pdf = _pdf_bytes(
@@ -239,6 +250,7 @@ async def on_offer(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None
         cid,
         BufferedInputFile(pdf, filename=f"Offer-{TICKET[1:]}.pdf"),
         caption="📎 <b>Detailed proposal (PDF)</b>, generated on the fly.",
+        parse_mode="HTML"
     )
     await asyncio.sleep(2.0)
     await bot.send_message(
@@ -249,10 +261,11 @@ async def on_offer(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None
             "🏷 Your clients see a polished, verified business, not a random DM.\n"
             "👆 <b>Tap “✅ I agree”</b> on the card above to keep going.",
         ),
+        parse_mode="HTML"
     )
 
 @router.callback_query(DemoData.filter(F.a == "ask"))
-async def on_ask(cb: CallbackQuery) -> None:
+async def on_ask(cb: CallbackQuery, callback_data: DemoData) -> None:
     await cb.answer("💬 In real life this opens a chat. For now, tap “✅ I agree” to continue.", show_alert=True)
 
 @router.callback_query(DemoData.filter(F.a == "accept"))
@@ -270,6 +283,7 @@ async def on_accept(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> Non
         "🎉 <b>Wonderful choice!</b>\n"
         f"The total amount is <b>{money(price)}</b>.",
         reply_markup=kb([(f"💳 Mark as Paid (demo)", DemoData(a="pay", s=s, d=d, b=b))]),
+        parse_mode="HTML"
     )
 
 @router.callback_query(DemoData.filter(F.a == "pay"))
@@ -289,7 +303,8 @@ async def on_pay(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
             "🧾 <b>Payment Confirmed</b>\n\n"
             f"💳 Total: <b>{money(price)}</b>\n"
             f"📌 Order {TICKET} confirmed with <b>{DEMO_VENDOR}</b>\n\n"
-            "<i>Thank you for your business!</i>"
+            "<i>Thank you for your business!</i>",
+            parse_mode="HTML"
         )
     await asyncio.sleep(2.4)
 
@@ -305,6 +320,7 @@ async def on_pay(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
             f"👛 Your payout: <b>{money(payout)}</b>\n\n"
             "🧮 Everything is tracked. You just click <b>✅ Paid</b> in your group, and the bot handles the accounting.",
         ),
+        parse_mode="HTML"
     )
     await asyncio.sleep(3.0)
     await send_finale(bot, cid)
@@ -326,4 +342,5 @@ async def send_finale(bot: Bot, chat_id: int) -> None:
             [("💬 Contact me to start", CONTACT_URL)],
             [("🔁 Replay the demo", DemoData(a="restart"))],
         ),
+        parse_mode="HTML"
     )
