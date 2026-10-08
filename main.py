@@ -778,7 +778,6 @@ async def from_group_media_and_text(message: types.Message):
                 "💰 <b>Total amount not detected.</b>\n"
                 "Please type the final total amount in USD (e.g. 150):\n\n"
                 "请输入最终总金额（USD）：",
-                message_thread_id=thread_id,
                 parse_mode="HTML"
             )
             return
@@ -836,8 +835,9 @@ async def from_buyer_media_and_text(message: types.Message):
     global pending_connect_thread, next_buyer_number
     if message.text and message.text.startswith("/"):
         return
-    if is_admin(message.from_user):
-        return
+    # ВРЕМЕННО ИЗКЛЮЧЕНА АДМИН ПРОВЕРКА ЗА ТЕСТ
+    # if is_admin(message.from_user):
+    #     return
 
     buyer_id = message.from_user.id
     buyer_names[buyer_id] = buyer_label(message.from_user)
