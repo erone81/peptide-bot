@@ -597,7 +597,6 @@ async def make_offer_clicked(callback: types.CallbackQuery):
         return
     
     waiting_offer_text[thread_id] = True
-    await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(
         "✍️ <b>Write the full offer text:</b>\n"
         "Include items, quantities, and total amount (e.g. 150).\n\n"
@@ -634,7 +633,11 @@ async def confirm_offer(callback: types.CallbackQuery):
     locked_offers.append(locked_item)
     save_data()
     
-    await callback.message.edit_reply_markup(reply_markup=None)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+        
     await callback.message.answer(f"Offer {code} is confirmed.\n\n{buyer_offer_text(offer)}\n\nThis is the final offer.")
     
     sales_chat_id = offer.get("chat_id", VENDORS[offer.get("vendor_key", "tidetron")]["sales_group_id"])
@@ -661,7 +664,10 @@ async def mark_offer_paid(callback: types.CallbackQuery):
 
     save_data()
     await callback.answer("Deal marked as Paid & Completed!")
-    await callback.message.edit_reply_markup(reply_markup=None)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
     
     await callback.message.answer(
         f"✅ <b>DEAL PAID & COMPLETED</b>\n"
@@ -697,7 +703,10 @@ async def change_offer(callback: types.CallbackQuery):
     await callback.answer("Nothing was saved")
     offer["status"] = "changed"
     save_data()
-    await callback.message.edit_reply_markup(reply_markup=None)
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
     await callback.message.answer("Nothing was saved. Write what you want to change.")
     target_chat = offer.get("chat_id", VENDORS[offer.get("vendor_key", "tidetron")]["sales_group_id"])
     await bot.send_message(target_chat, "The buyer wants a change. Nothing was saved.", message_thread_id=offer["thread_id"])
@@ -769,6 +778,7 @@ async def from_group_media_and_text(message: types.Message):
                 "💰 <b>Total amount not detected.</b>\n"
                 "Please type the final total amount in USD (e.g. 150):\n\n"
                 "请输入最终总金额（USD）：",
+                message_thread_id=thread_id,
                 parse_mode="HTML"
             )
             return
@@ -799,7 +809,7 @@ async def from_group_media_and_text(message: types.Message):
         await message.reply("Do not write the commission in the message.")
         return
 
-    # Само препращаме съобщението/медията към клиента, БЕЗ да набиваме излишни бутони за оферта
+    # Препращаме съобщението към клиента
     vendor_name = VENDORS.get(vendor_key, {}).get("chat_name", "Vendor")
     header = f"{vendor_name}:\n\n"
     try:
@@ -856,11 +866,18 @@ async def from_buyer_media_and_text(message: types.Message):
             topic_buyers[thread_id] = buyer_id
             topic_vendors[thread_id] = vendor_key
             save_data()
-            await bot.send_message(
+            
+            # Създаваме и закачаме постоянен бутон Make offer горе в темата
+            panel = await bot.send_message(
                 target_group_id,
-                f"New buyer #{current_num} for {v['chat_name']}: {buyer_label(message.from_user)}\nWrite here.",
-                message_thread_id=thread_id
+                f"Client #{current_num} for {v['chat_name']}: {buyer_label(message.from_user)}\nUse the button below to send an offer.",
+                message_thread_id=thread_id,
+                reply_markup=make_offer_keyboard()
             )
+            try:
+                await bot.pin_chat_message(target_group_id, panel.message_id, disable_notification=True)
+            except Exception:
+                pass
         except Exception as e:
             print("Create topic failed:", e)
             await message.answer("Vendor chat not ready. Please try again.")
