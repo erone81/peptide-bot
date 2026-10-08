@@ -15,8 +15,11 @@ dp = Dispatcher()
 ADMIN_IDS = [8912162282]
 ADMIN_USERNAMES = ["g3orgel", "georgel"]
 
+# Мапване на юзърнейми към вендори (можеш да добавяш нови тук)
 VENDOR_ACCOUNTS = {
     "novapure_li": "novapure",
+    "g3orgel": "tidetron", # Админът може да тества навсякъде
+    "georgel": "tidetron",
 }
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -161,19 +164,13 @@ def is_admin(user: types.User) -> bool:
         return True
     return False
 
-def get_vendor_key_for_user(user: types.User) -> str:
-    if not user or not user.username:
-        return None
-    return VENDOR_ACCOUNTS.get(user.username.lower())
-
-def can_view_commission(user: types.User) -> bool:
-    if not user:
-        return False
+def can_manage_vendor(user: types.User, vendor_key: str) -> bool:
     if is_admin(user):
         return True
-    if user.username and user.username.lower() in [v.lower() for v in VENDOR_ACCOUNTS.keys()]:
-        return True
-    return False
+    if not user or not user.username:
+        return False
+    mapped = VENDOR_ACCOUNTS.get(user.username.lower())
+    return mapped == vendor_key
 
 def vendor_list_keyboard():
     buttons = []
@@ -215,7 +212,7 @@ def public_vendor_keyboard(vendor_key: str):
         )]
     ])
 
-def topic_name(user: types.User, num: int, icon: str = "⏳") -> str:
+def topic_name(user: types.User, num: int, icon: str = "🆕") -> str:
     who = user.username or user.full_name or "Buyer"
     return f"{icon} #{num} · {who}"[:120]
 
@@ -344,9 +341,7 @@ async def proof_thread(sales_group_id):
 
 async def update_topic_icon_status(chat_id, thread_id, buyer_id, icon):
     num = buyer_numbers.get(buyer_id, 1)
-    # Get user object or name
     who = buyer_names.get(buyer_id, "Buyer")
-    # clean name if formatted as "Full Name (@username)"
     new_name = f"{icon} #{num} · {who}"[:120]
     try:
         await bot.edit_forum_topic(chat_id=chat_id, message_thread_id=thread_id, name=new_name)
@@ -373,11 +368,17 @@ async def open_vendor_callback(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "start_make_offer")
 async def make_offer_clicked(callback: types.CallbackQuery):
-    await callback.answer()
     thread_id = callback.message.message_thread_id
     if not thread_id or thread_id not in topic_buyers:
+        await callback.answer("Invalid topic.", show_alert=True)
         return
     
+    vendor_key = topic_vendors.get(thread_id, "tidetron")
+    if not can_manage_vendor(callback.from_user, vendor_key):
+        await callback.answer("⚠️ You are not authorized to create offers for this vendor.", show_alert=True)
+        return
+
+    await callback.answer()
     waiting_offer_text[thread_id] = "description"
     await callback.message.answer(
         "✍️ <b>Describe the offer exactly as the client should see it:</b>\n"
@@ -392,6 +393,11 @@ async def offer_send_callback(callback: types.CallbackQuery):
     offer = pending.get(key)
     if not offer or offer.get("status") != "draft":
         await callback.answer("Offer not available.", show_alert=True)
+        return
+
+    vendor_key = offer["vendor_key"]
+    if not can_manage_vendor(callback.from_user, vendor_key):
+        await callback.answer("⚠️ Unauthorized.", show_alert=True)
         return
 
     code = f"ORD-{next_offer_number}"
@@ -414,12 +420,11 @@ async def offer_send_callback(callback: types.CallbackQuery):
         parse_mode="HTML"
     )
 
-    # Обновяваме иконката на темата на 📦 (изпратена оферта)
     buyer_id = offer["buyer_id"]
-    vendor_key = offer["vendor_key"]
     sales_chat_id = VENDORS[vendor_key]["sales_group_id"]
     thread_id = offer["thread_id"]
     
+    # Обновяваме иконката на темата на 📦 (изпратена оферта)
     await update_topic_icon_status(sales_chat_id, thread_id, buyer_id, "📦")
 
     vendor_name = VENDORS.get(vendor_key, {}).get("chat_name", "Vendor")
@@ -443,6 +448,10 @@ async def offer_edit_callback(callback: types.CallbackQuery):
     if not offer:
         await callback.answer("Draft not found.", show_alert=True)
         return
+    if not can_manage_vendor(callback.from_user, offer["vendor_key"]):
+        await callback.answer("⚠️ Unauthorized.", show_alert=True)
+        return
+
     thread_id = offer["thread_id"]
     waiting_offer_text[thread_id] = "description"
     pending.pop(key, None)
@@ -458,6 +467,9 @@ async def offer_cancel_callback(callback: types.CallbackQuery):
     key = callback.data.split(":", 1)[1]
     offer = pending.get(key)
     if offer:
+        if not can_manage_vendor(callback.from_user, offer["vendor_key"]):
+            await callback.answer("⚠️ Unauthorized.", show_alert=True)
+            return
         offer["status"] = "cancelled"
         save_data()
     await callback.answer("Offer cancelled.")
@@ -510,11 +522,16 @@ async def confirm_offer_buyer(callback: types.CallbackQuery):
     await bot.send_message(buyer_id, "Offer confirmed.")
     
     sales_chat_id = offer.get("chat_id")
+    thread_id = offer["thread_id"]
+    
+    # Обновяваме иконката на темата на 🔒 (заключена/потвърдена)
+    await update_topic_icon_status(sales_chat_id, thread_id, buyer_id, "🔒")
+
     await bot.send_message(
         sales_chat_id,
         f"🔒 <b>{code} confirmed · {money(total)}</b>\n"
         f"Send the payment link or details to the client here in this topic.",
-        message_thread_id=offer["thread_id"],
+        message_thread_id=thread_id,
         reply_markup=paid_keyboard(key),
         parse_mode="HTML"
     )
@@ -525,6 +542,11 @@ async def mark_offer_paid(callback: types.CallbackQuery):
     offer = pending.get(key)
     if not offer or offer.get("status") != "locked":
         await callback.answer("Offer not locked or already processed.", show_alert=True)
+        return
+
+    vendor_key = offer.get("vendor_key", "tidetron")
+    if not can_manage_vendor(callback.from_user, vendor_key):
+        await callback.answer("⚠️ You are not authorized to mark this deal as paid.", show_alert=True)
         return
 
     code = offer.get("code")
@@ -552,7 +574,6 @@ async def mark_offer_paid(callback: types.CallbackQuery):
     )
 
     buyer_id = offer["buyer_id"]
-    vendor_key = offer.get("vendor_key", "tidetron")
     sales_chat_id = VENDORS[vendor_key]["sales_group_id"]
     thread_id = offer["thread_id"]
 
@@ -592,6 +613,9 @@ async def from_group_media_and_text(message: types.Message):
     text = message.text or message.caption or ""
 
     if waiting_offer_text.get(thread_id) == "description":
+        if not can_manage_vendor(message.from_user, vendor_key):
+            await message.reply("⚠️ You are not authorized to create offers.")
+            return
         if leaks_commission(text):
             await message.reply("Do not write commission in the offer.")
             return
@@ -606,6 +630,9 @@ async def from_group_media_and_text(message: types.Message):
 
     state_data = waiting_offer_text.get(thread_id)
     if isinstance(state_data, dict) and "desc" in state_data and "total" not in state_data:
+        if not can_manage_vendor(message.from_user, vendor_key):
+            await message.reply("⚠️ You are not authorized.")
+            return
         amount = clean_number(text)
         if amount is None:
             await message.reply("Please send a valid number, for example 350 or 350.50.")
@@ -639,15 +666,17 @@ async def from_group_media_and_text(message: types.Message):
         await message.reply("Do not write commission in the message.")
         return
 
+    # Препращане на съобщението от търговеца към клиента с ясен етикет
     vendor_name = VENDORS.get(vendor_key, {}).get("chat_name", "Vendor")
-    header = f"{vendor_name}:\n\n"
+    header = f"<b>Отговор от: {vendor_name}</b>\n\n"
+    
     try:
         if message.photo:
-            await bot.send_photo(buyer_id, message.photo[-1].file_id, caption=f"{header}{message.caption}" if message.caption else None)
+            await bot.send_photo(buyer_id, message.photo[-1].file_id, caption=f"{header}{message.caption}" if message.caption else header, parse_mode="HTML")
         elif message.document:
-            await bot.send_document(buyer_id, message.document.file_id, caption=f"{header}{message.caption}" if message.caption else None)
+            await bot.send_document(buyer_id, message.document.file_id, caption=f"{header}{message.caption}" if message.caption else header, parse_mode="HTML")
         elif message.text:
-            await bot.send_message(buyer_id, f"{header}{message.text}")
+            await bot.send_message(buyer_id, f"{header}{message.text}", parse_mode="HTML")
     except Exception:
         await message.reply("Failed to deliver message to buyer.")
 
@@ -671,7 +700,8 @@ async def from_buyer_media_and_text(message: types.Message):
             next_buyer_number += 1
             buyer_numbers[buyer_id] = current_num
             
-            topic = await bot.create_forum_topic(target_group_id, topic_name(message.from_user, current_num, "⏳"))
+            # Започваме с иконка 🆕 (ново запитване)
+            topic = await bot.create_forum_topic(target_group_id, topic_name(message.from_user, current_num, "🆕"))
             thread_id = topic.message_thread_id
             buyer_topics[buyer_id] = thread_id
             topic_buyers[thread_id] = buyer_id
@@ -695,10 +725,14 @@ async def from_buyer_media_and_text(message: types.Message):
 
     save_data()
 
+    # Ако е първо съобщение или в разговор, сменяме статуса на ⏳ (в разговор) ако е бил 🆕
+    # (Може да проверим дали текущото име започва с 🆕)
+
     if message.photo:
         await bot.send_photo(target_group_id, message.photo[-1].file_id, caption=message.caption, message_thread_id=thread_id)
     elif message.document:
-        await bot.send_document(target_group_id, message.document.file_id, caption=message.caption, message_thread_id=thread_id)
+        box = message.document
+        await bot.send_document(target_group_id, box.file_id, caption=message.caption, message_thread_id=thread_id)
     elif message.text:
         await bot.send_message(target_group_id, message.text, message_thread_id=thread_id)
 
