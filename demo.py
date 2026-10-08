@@ -4,6 +4,7 @@ from contextlib import suppress
 from html import escape
 from aiogram import Bot, F, Router
 from aiogram.enums import ChatAction
+from aiogram.filters import CommandStart
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 router = Router(name="demo")
@@ -14,7 +15,6 @@ CONTACT_URL = "https://t.me/g3orgel"
 COMMISSION_PCT = 10
 TICKET = "#1042"
 
-# Продукти и категории, съобразени с нашия бизнес
 PRODUCTS = {
     "bulk": ("🧪", "B2B Bulk Peptides (Vials / Kits)"),
     "blend": ("🧬", "Custom Blends & Solutions"),
@@ -119,7 +119,6 @@ def _pdf_bytes(title: str, lines: list[str]) -> bytes:
     pdf += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF" % (len(bodies) + 1, xref)
     return bytes(pdf)
 
-# --- НАЧАЛО НА ДЕМОТО ---
 async def run_intro(bot: Bot, chat_id: int) -> None:
     await bot.send_message(chat_id, "✨ <b>NOVAGENIX INTERACTIVE VENDOR DEMO</b> ✨", parse_mode="HTML")
     await pause(bot, chat_id, 1.4)
@@ -133,6 +132,16 @@ async def run_intro(bot: Bot, chat_id: int) -> None:
         reply_markup=kb([("🎬 Стартирай демонстрацията", "demo_begin")], [("⏭ Към обобщението", "demo_finale")]),
         parse_mode="HTML"
     )
+
+# --- САМОСТОЯТЕЛНИ ХЕНДЛЪРИ ЗА СТАРТИРАНЕ НА ДЕМОТО ---
+@router.message(CommandStart(deep_link=True, magic=F.args == "demo"))
+async def demo_deep_link(message: Message, bot: Bot) -> None:
+    await run_intro(bot, message.chat.id)
+
+@router.message(F.text.in_({"/start demo", "demo"}))
+async def demo_text_command(message: Message, bot: Bot) -> None:
+    await run_intro(bot, message.chat.id)
+
 
 @router.callback_query(F.data == "demo_restart")
 async def on_restart(cb: CallbackQuery) -> None:
@@ -217,7 +226,6 @@ async def on_destination(cb: CallbackQuery) -> None:
         )
     await asyncio.sleep(2.2)
 
-    # Обяснение на бекенд магията за вендора
     await cb.message.answer(
         magic(
             "Какво вижда вендорът в своята група",
@@ -275,7 +283,6 @@ async def on_offer(cb: CallbackQuery) -> None:
     )
     await cb.message.answer(caption, reply_markup=markup, parse_mode="HTML")
 
-    # Генериране на PDF предложение в паметта
     await pause(cb.message.bot, cb.message.chat.id, 1.6)
     pdf = _pdf_bytes(
         f"{DEMO_VENDOR} - B2B Proposal {TICKET}",
@@ -339,7 +346,6 @@ async def on_pay(cb: CallbackQuery) -> None:
         )
     await asyncio.sleep(2.4)
 
-    # Обяснение на автоматичното отчитане на комисионната
     await cb.message.answer(
         magic(
             "Автоматично счетоводство и комисионни",
