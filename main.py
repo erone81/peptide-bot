@@ -307,8 +307,16 @@ def save_data():
 def load_data():
     global buyer_topics, topic_buyers, topic_vendors, buyer_active_vendor, buyer_names
     global pending, locked_offers, next_offer_number, next_buyer_number, proof_topic_id
-    if not os.path.exists(DATA_PATH):
+    
+    # АВТОМАТИЧНО ЗАНУЛЯВАНЕ ПРИ СТАРТИРАНЕ (ЗА ТЕСТВАНЕ)
+    if os.path.exists(DATA_PATH):
+        try:
+            os.remove(DATA_PATH)
+            print("routes.json automatically reset on startup.")
+        except Exception as e:
+            print(f"Could not reset routes.json: {e}")
         return
+
     try:
         with open(DATA_PATH, encoding="utf-8") as f:
             data = json.load(f)
