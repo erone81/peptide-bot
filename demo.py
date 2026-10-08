@@ -32,7 +32,7 @@ OFFERS = {
     "con": ("Custom Formulation", ["Dedicated project manager", "Weekly progress reports", "IP protection guaranteed"]),
 }
 
-class Demo(CallbackData, prefix="demo"):
+class DemoData(CallbackData, prefix="demo"):
     a: str
     s: str = ""
     d: str = ""
@@ -101,20 +101,20 @@ async def run_intro(bot: Bot, chat_id: int) -> None:
         "🎭 <b>You</b> = your future client\n"
         "🪄 <b>Me</b> = your 24/7 automated sales assistant\n\n"
         "<i>No setup. No signup. Just tap.</i>",
-        reply_markup=kb([("🎬 Start the tour", Demo(a="begin"))], [("⏭ Skip to the summary", Demo(a="finale"))])
+        reply_markup=kb([("🎬 Start the tour", DemoData(a="begin"))], [("⏭ Skip to the summary", DemoData(a="finale"))])
     )
 
-# Улавя САМО ?start=demo (за да не чупи основния main.py)
-@router.message(CommandStart(), F.text.endswith("demo"))
+# Улавя САМО /start demo или линк със start=demo
+@router.message(F.text.startswith("/start demo"))
 async def demo_entry(message: Message, bot: Bot) -> None:
     await run_intro(bot, message.chat.id)
 
-@router.callback_query(Demo.filter(F.a == "restart"))
+@router.callback_query(DemoData.filter(F.a == "restart"))
 async def on_restart(cb: CallbackQuery, bot: Bot) -> None:
     await cb.answer()
     await run_intro(bot, cb.message.chat.id)
 
-@router.callback_query(Demo.filter(F.a == "begin"))
+@router.callback_query(DemoData.filter(F.a == "begin"))
 async def on_begin(cb: CallbackQuery, bot: Bot) -> None:
     await cb.answer()
     cid = cb.message.chat.id
@@ -126,11 +126,11 @@ async def on_begin(cb: CallbackQuery, bot: Bot) -> None:
         f"You tapped a link on <b>{DEMO_VENDOR}</b>'s channel. "
         "No website, no contact form, no waiting.\n\n"
         "👋 <b>Hi! What are you looking for?</b>",
-        reply_markup=kb(*[[(f"{e} {n}", Demo(a="svc", s=code))] for code, (e, n) in SERVICES.items()]),
+        reply_markup=kb(*[[(f"{e} {n}", DemoData(a="svc", s=code))] for code, (e, n) in SERVICES.items()]),
     )
 
-@router.callback_query(Demo.filter(F.a == "svc"))
-async def on_service(cb: CallbackQuery, callback_data: Demo, bot: Bot) -> None:
+@router.callback_query(DemoData.filter(F.a == "svc"))
+async def on_service(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
     await cb.answer()
     cid, s = cb.message.chat.id, callback_data.s
     e, n = SERVICES[s]
@@ -139,11 +139,11 @@ async def on_service(cb: CallbackQuery, callback_data: Demo, bot: Bot) -> None:
     await bot.send_message(
         cid,
         f"Great choice! {e}\n\n📅 <b>When do you need it?</b>",
-        reply_markup=kb(*[[(f"📅 {label}", Demo(a="date", s=s, d=code))] for code, label in DATES.items()]),
+        reply_markup=kb(*[[(f"📅 {label}", DemoData(a="date", s=s, d=code))] for code, label in DATES.items()]),
     )
 
-@router.callback_query(Demo.filter(F.a == "date"))
-async def on_date(cb: CallbackQuery, callback_data: Demo, bot: Bot) -> None:
+@router.callback_query(DemoData.filter(F.a == "date"))
+async def on_date(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
     await cb.answer()
     cid, s, d = cb.message.chat.id, callback_data.s, callback_data.d
     await mark(cb, f"📅 {DATES[d]}")
@@ -151,11 +151,11 @@ async def on_date(cb: CallbackQuery, callback_data: Demo, bot: Bot) -> None:
     await bot.send_message(
         cid,
         "💰 <b>And your approximate budget?</b>\n<i>Just a rough range, it helps tailor the offer.</i>",
-        reply_markup=kb(*[[(f"💰 {label}", Demo(a="bud", s=s, d=d, b=code))] for code, (label, _) in BUDGETS.items()]),
+        reply_markup=kb(*[[(f"💰 {label}", DemoData(a="bud", s=s, d=d, b=code))] for code, (label, _) in BUDGETS.items()]),
     )
 
-@router.callback_query(Demo.filter(F.a == "bud"))
-async def on_budget(cb: CallbackQuery, callback_data: Demo, bot: Bot) -> None:
+@router.callback_query(DemoData.filter(F.a == "bud"))
+async def on_budget(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
     await cb.answer()
     cid = cb.message.chat.id
     s, d, b = callback_data.s, callback_data.d, callback_data.b
@@ -191,11 +191,11 @@ async def on_budget(cb: CallbackQuery, callback_data: Demo, bot: Bot) -> None:
     await bot.send_message(
         cid,
         "Now flip the script. 🔄\nYou're the vendor, and the client is waiting…",
-        reply_markup=kb([("💼 Reply as the vendor", Demo(a="offer", s=s, d=d, b=b))]),
+        reply_markup=kb([("💼 Reply as the vendor", DemoData(a="offer", s=s, d=d, b=b))]),
     )
 
-@router.callback_query(Demo.filter(F.a == "offer"))
-async def on_offer(cb: CallbackQuery, callback_data: Demo, bot: Bot) -> None:
+@router.callback_query(DemoData.filter(F.a == "offer"))
+async def on_offer(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
     await cb.answer()
     cid = cb.message.chat.id
     s, d, b = callback_data.s, callback_data.d, callback_data.b
@@ -222,8 +222,8 @@ async def on_offer(cb: CallbackQuery, callback_data: Demo, bot: Bot) -> None:
         f"💰 <b>Total: {money(price)}</b>"
     )
     markup = kb(
-        [("✅ I agree", Demo(a="accept", s=s, d=d, b=b))],
-        [("💬 Ask a question", Demo(a="ask"))],
+        [("✅ I agree", DemoData(a="accept", s=s, d=d, b=b))],
+        [("💬 Ask a question", DemoData(a="ask"))],
     )
     await bot.send_message(cid, caption, reply_markup=markup)
 
@@ -251,12 +251,12 @@ async def on_offer(cb: CallbackQuery, callback_data: Demo, bot: Bot) -> None:
         ),
     )
 
-@router.callback_query(Demo.filter(F.a == "ask"))
+@router.callback_query(DemoData.filter(F.a == "ask"))
 async def on_ask(cb: CallbackQuery) -> None:
     await cb.answer("💬 In real life this opens a chat. For now, tap “✅ I agree” to continue.", show_alert=True)
 
-@router.callback_query(Demo.filter(F.a == "accept"))
-async def on_accept(cb: CallbackQuery, callback_data: Demo, bot: Bot) -> None:
+@router.callback_query(DemoData.filter(F.a == "accept"))
+async def on_accept(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
     await cb.answer("🎉 Accepted!")
     cid = cb.message.chat.id
     s, d, b = callback_data.s, callback_data.d, callback_data.b
@@ -269,11 +269,11 @@ async def on_accept(cb: CallbackQuery, callback_data: Demo, bot: Bot) -> None:
         "🎬 <b>Step 3/4 · Locking in the deal</b>\n\n"
         "🎉 <b>Wonderful choice!</b>\n"
         f"The total amount is <b>{money(price)}</b>.",
-        reply_markup=kb([(f"💳 Mark as Paid (demo)", Demo(a="pay", s=s, d=d, b=b))]),
+        reply_markup=kb([(f"💳 Mark as Paid (demo)", DemoData(a="pay", s=s, d=d, b=b))]),
     )
 
-@router.callback_query(Demo.filter(F.a == "pay"))
-async def on_pay(cb: CallbackQuery, callback_data: Demo, bot: Bot) -> None:
+@router.callback_query(DemoData.filter(F.a == "pay"))
+async def on_pay(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
     await cb.answer()
     cid = cb.message.chat.id
     s, d, b = callback_data.s, callback_data.d, callback_data.b
@@ -324,6 +324,6 @@ async def send_finale(bot: Bot, chat_id: int) -> None:
         "<i>Ready to level up your Telegram sales?</i> 🚀",
         reply_markup=kb(
             [("💬 Contact me to start", CONTACT_URL)],
-            [("🔁 Replay the demo", Demo(a="restart"))],
+            [("🔁 Replay the demo", DemoData(a="restart"))],
         ),
     )
