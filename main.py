@@ -13,7 +13,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # --- ДОБАВЕНО ЗА ДЕМОТО ---
-from demo import router as demo_router
+from demo import router as demo_router, run_intro
 dp.include_router(demo_router)
 # --------------------------
 
@@ -52,13 +52,11 @@ VENDORS = {
             "━━━━━━━━━━━━\n\n"
             "🛡️ <b>COMPREHENSIVE BUYER GUARANTEE:</b>\n\n"
             "📦 <b>100% Guaranteed Delivery &amp; DDP Customs</b>\n"
-            "All customs clearance, import tariffs, and duties are entirely handled and prepaid by the vendor (Delivered Duty Paid). Zero surprise fees for the recipient.\n\n"
+            "All customs clearance, import tariffs, and duties are entirely handled and prepaid by the vendor.\n\n"
             "🔄 <b>Full Reship Policy</b>\n"
-            "In the rare event of transit damage, loss, or customs seizure, your entire order is reshipped immediately free of charge at the vendor’s expense.\n\n"
+            "In the rare event of transit damage, loss, or customs seizure, your entire order is reshipped immediately.\n\n"
             "🧪 <b>Blind Lab Testing &amp; Quality Shield</b>\n"
-            "Every batch is produced under strict cGMP compliance. If an independent test from an accredited, internationally recognized 3rd-party laboratory (such as Janoshik or equivalent ISO 17025 accredited facility) reveals sub-standard purity (&lt;98%) or incorrect quantity:\n"
-            "• 100% refund of the full product value\n"
-            "• 100% direct reimbursement of the testing laboratory fee"
+            "Every batch is produced under strict cGMP compliance."
         ),
         "chat_card": (
             "<b>TIDETRON PEPTIDES</b>\n"
@@ -86,25 +84,19 @@ VENDORS = {
         ),
         "post_details": (
             "📍 <b>Warehouses:</b> China &amp; USA\n"
-            "🚚 <b>Shipping:</b> 10–15 business days (Global) · 3–5 days (USA Domestic)\n"
-            "💳 <b>Payment:</b> Alibaba Trade Assurance, PayPal, Apple Pay, Crypto, Wire Transfer\n\n"
+            "🚚 <b>Shipping:</b> 10–15 business days (Global)\n"
+            "💳 <b>Payment:</b> Alibaba Trade Assurance, PayPal, Crypto\n\n"
             "━━━━━━━━━━━━\n\n"
             "🛡️ <b>COMPREHENSIVE BUYER GUARANTEE:</b>\n\n"
             "📦 <b>100% Guaranteed Delivery &amp; DDP Customs</b>\n"
-            "All customs clearance, import tariffs, and duties are entirely handled and prepaid by the vendor (Delivered Duty Paid). Zero surprise fees for the recipient.\n\n"
-            "🔄 <b>Full Reship Policy</b>\n"
-            "In the rare event of transit damage, loss, or customs seizure, your entire order is reshipped immediately free of charge at the vendor’s expense.\n\n"
-            "🧪 <b>Blind Lab Testing &amp; Quality Shield</b>\n"
-            "Every batch is produced under strict cGMP compliance. If an independent test from an accredited, internationally recognized 3rd-party laboratory (such as Janoshik or equivalent ISO 17025 accredited facility) reveals sub-standard purity (&lt;98%) or incorrect quantity:\n"
-            "• 100% refund of the full product value\n"
-            "• 100% direct reimbursement of the testing laboratory fee"
+            "All customs clearance, import tariffs, and duties are entirely handled and prepaid by the vendor."
         ),
         "chat_card": (
             "<b>NOVAPURE</b>\n"
             "✅ <b>Verified Vendor</b>\n\n"
             "📍 <b>Warehouse:</b> China &amp; USA\n"
-            "🚚 <b>Shipping:</b> 10–15 days (China) · 3–5 days (USA)\n"
-            "💳 <b>Payment:</b> Alibaba, PayPal, Apple Pay, Crypto &amp; more"
+            "🚚 <b>Shipping:</b> 10–15 days\n"
+            "💳 <b>Payment:</b> Alibaba, PayPal, Crypto &amp; more"
         )
     },
     "handom": {
@@ -124,17 +116,11 @@ VENDORS = {
         "post_details": (
             "📍 <b>Warehouse:</b> China\n"
             "🚚 <b>Shipping:</b> 10–15 business days (Global)\n"
-            "💳 <b>Payment:</b> Alibaba Trade Assurance, PayPal, Crypto, Wire Transfer\n\n"
+            "💳 <b>Payment:</b> Alibaba Trade Assurance, PayPal, Crypto\n\n"
             "━━━━━━━━━━━━\n\n"
             "🛡️ <b>COMPREHENSIVE BUYER GUARANTEE:</b>\n\n"
             "📦 <b>100% Guaranteed Delivery &amp; DDP Customs</b>\n"
-            "All customs clearance, import tariffs, and duties are entirely handled and prepaid by the vendor (Delivered Duty Paid). Zero surprise fees for the recipient.\n\n"
-            "🔄 <b>Full Reship Policy</b>\n"
-            "In the rare event of transit damage, loss, or customs seizure, your entire order is reshipped immediately free of charge at the vendor’s expense.\n\n"
-            "🧪 <b>Blind Lab Testing &amp; Quality Shield</b>\n"
-            "Every batch is produced under strict compliance standards. If an independent test from an accredited, internationally recognized 3rd-party laboratory reveals sub-standard purity (&lt;98%) or incorrect quantity:\n"
-            "• 100% refund of the full product value\n"
-            "• 100% direct reimbursement of the testing laboratory fee"
+            "All customs clearance and duties are entirely handled by the vendor."
         ),
         "chat_card": (
             "<b>HANDOM CHEMICALS</b>\n"
@@ -374,17 +360,26 @@ async def update_topic_icon_status(chat_id, thread_id, buyer_id, vendor_key, ico
     except Exception as e:
         print("Failed to update topic icon:", e)
 
+# ---------------- ТУК Е ФИКСЪТ ЗА ДЕМОТО ----------------
 @dp.message(CommandStart())
 async def start_handler(message: types.Message, command: CommandObject):
     arg = (command.args or "").lower()
+    
+    # Ако клиентът е написал "/start demo" или е цъкнал линк "?start=demo"
+    if arg == "demo" or message.text.strip().lower().endswith("demo"):
+        await run_intro(bot, message.chat.id)
+        return
+        
     if arg in VENDORS:
         await send_vendor_welcome(message, arg)
         return
+        
     await message.answer(
         "🛡️ <b>Verified Vendors</b>\n\nChoose a vendor below to start chatting directly:",
         reply_markup=vendor_list_keyboard(),
         parse_mode="HTML",
     )
+# --------------------------------------------------------
 
 @dp.callback_query(F.data.startswith("open_vendor:"))
 async def open_vendor_callback(callback: types.CallbackQuery):
