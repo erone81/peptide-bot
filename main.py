@@ -15,10 +15,9 @@ dp = Dispatcher()
 ADMIN_IDS = [8912162282]
 ADMIN_USERNAMES = ["g3orgel", "georgel"]
 
-# Мапване на юзърнейми към вендори (можеш да добавяш нови тук)
 VENDOR_ACCOUNTS = {
     "novapure_li": "novapure",
-    "g3orgel": "tidetron", # Админът може да тества навсякъде
+    "g3orgel": "tidetron",
     "georgel": "tidetron",
 }
 
@@ -142,16 +141,17 @@ VENDORS = {
     }
 }
 
-buyer_topics = {}
-topic_buyers = {}
-topic_vendors = {}
+# Ключове за темите: съхраняваме по двойка (buyer_id, vendor_key)
+buyer_topics = {} # {(buyer_id, vendor_key): thread_id}
+topic_buyers = {} # {thread_id: buyer_id}
+topic_vendors = {} # {thread_id: vendor_key}
 buyer_active_vendor = {}
 buyer_names = {}
-buyer_numbers = {}
+buyer_numbers = {} # {(buyer_id, vendor_key): num}
 pending = {}
 locked_offers = []
 next_offer_number = 1001
-next_buyer_number = 1
+next_buyer_number = {} # {vendor_key: counter}
 proof_topic_id = None
 waiting_offer_text = {}
 
@@ -202,16 +202,6 @@ def paid_keyboard(key):
         [InlineKeyboardButton(text="✅ Paid", callback_data=f"paid:{key}")]
     ])
 
-def public_vendor_keyboard(vendor_key: str):
-    v = VENDORS.get(vendor_key, {})
-    label = v.get("button_text", "💬 Chat with Vendor 🟢")
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text=label,
-            url=f"https://t.me/TrustedVendorsNewBot?start={vendor_key}"
-        )]
-    ])
-
 def topic_name(user: types.User, num: int, icon: str = "🆕") -> str:
     who = user.username or user.full_name or "Buyer"
     return f"{icon} #{num} · {who}"[:120]
@@ -247,15 +237,19 @@ def buyer_label(user: types.User) -> str:
 
 def save_data():
     try:
+        # Сериализираме ключовете от tuple в string за JSON
+        serialized_buyer_topics = {f"{k[0]}_{k[1]}": v for k, v in buyer_topics.items()}
+        serialized_buyer_numbers = {f"{k[0]}_{k[1]}": v for k, v in buyer_numbers.items()}
+
         with open(DATA_PATH, "w", encoding="utf-8") as f:
             json.dump(
                 {
-                    "buyer_topics": buyer_topics,
+                    "buyer_topics": serialized_buyer_topics,
                     "topic_buyers": topic_buyers,
                     "topic_vendors": topic_vendors,
                     "buyer_active_vendor": buyer_active_vendor,
                     "buyer_names": buyer_names,
-                    "buyer_numbers": buyer_numbers,
+                    "buyer_numbers": serialized_buyer_numbers,
                     "pending": pending,
                     "locked_offers": locked_offers,
                     "next_offer_number": next_offer_number,
@@ -284,16 +278,33 @@ def load_data():
     try:
         with open(DATA_PATH, encoding="utf-8") as f:
             data = json.load(f)
-        buyer_topics = {int(k): v for k, v in data.get("buyer_topics", {}).items()}
+        
+        raw_buyer_topics = data.get("buyer_topics", {})
+        buyer_topics = {}
+        for k, v in raw_buyer_topics.items():
+            parts = k.split("_")
+            if len(parts) == 2:
+                buyer_topics[(int(parts[0]), parts[1])] = v
+
         topic_buyers = {int(k): v for k, v in data.get("topic_buyers", {}).items()}
         topic_vendors = {int(k): v for k, v in data.get("topic_vendors", {}).items()}
         buyer_active_vendor = {int(k): v for k, v in data.get("buyer_active_vendor", {}).items()}
         buyer_names = {int(k): v for k, v in data.get("buyer_names", {}).items()}
-        buyer_numbers = {int(k): v for k, v in data.get("buyer_numbers", {}).items()}
+
+        raw_buyer_numbers = data.get("buyer_numbers", {})
+        buyer_numbers = {}
+        for k, v in raw_buyer_numbers.items():
+            parts = k.split("_")
+            if len(parts) == 2:
+                buyer_numbers[(int(parts[0]), parts[1])] = v
+
         pending = data.get("pending", {})
         locked_offers = data.get("locked_offers", [])
         next_offer_number = int(data.get("next_offer_number", 1001))
-        next_buyer_number = int(data.get("next_buyer_number", 1))
+        next_buyer_number = data.get("next_buyer_number", 1)
+        if isinstance(next_buyer_number, int):
+            # Конвертираме стар формат към речник по вендори
+            next_buyer_number = {"tidetron": next_buyer_number, "novapure": next_buyer_number, "handom": next_buyer_number}
         proof_topic_id = data.get("proof_topic_id")
     except Exception as e:
         print(f"Error loading routes.json: {e}")
@@ -339,8 +350,8 @@ async def proof_thread(sales_group_id):
     save_data()
     return proof_topic_id
 
-async def update_topic_icon_status(chat_id, thread_id, buyer_id, icon):
-    num = buyer_numbers.get(buyer_id, 1)
+async def update_topic_icon_status(chat_id, thread_id, buyer_id, vendor_key, icon):
+    num = buyer_numbers.get((buyer_id, vendor_key), 1)
     who = buyer_names.get(buyer_id, "Buyer")
     new_name = f"{icon} #{num} · {who}"[:120]
     try:
@@ -424,8 +435,7 @@ async def offer_send_callback(callback: types.CallbackQuery):
     sales_chat_id = VENDORS[vendor_key]["sales_group_id"]
     thread_id = offer["thread_id"]
     
-    # Обновяваме иконката на темата на 📦 (изпратена оферта)
-    await update_topic_icon_status(sales_chat_id, thread_id, buyer_id, "📦")
+    await update_topic_icon_status(sales_chat_id, thread_id, buyer_id, vendor_key, "📦")
 
     vendor_name = VENDORS.get(vendor_key, {}).get("chat_name", "Vendor")
     card_text = (
@@ -491,6 +501,7 @@ async def confirm_offer_buyer(callback: types.CallbackQuery):
     total = float(offer["total"])
     commission = commission_of(total)
     code = offer["code"]
+    vendor_key = offer.get("vendor_key", "tidetron")
     
     offer["status"] = "locked"
     
@@ -499,7 +510,7 @@ async def confirm_offer_buyer(callback: types.CallbackQuery):
         "total": total,
         "commission": commission,
         "buyer_id": offer["buyer_id"],
-        "vendor_key": offer.get("vendor_key", "tidetron"),
+        "vendor_key": vendor_key,
         "text": offer["description"],
         "paid": False
     }
@@ -524,8 +535,7 @@ async def confirm_offer_buyer(callback: types.CallbackQuery):
     sales_chat_id = offer.get("chat_id")
     thread_id = offer["thread_id"]
     
-    # Обновяваме иконката на темата на 🔒 (заключена/потвърдена)
-    await update_topic_icon_status(sales_chat_id, thread_id, buyer_id, "🔒")
+    await update_topic_icon_status(sales_chat_id, thread_id, buyer_id, vendor_key, "🔒")
 
     await bot.send_message(
         sales_chat_id,
@@ -577,8 +587,7 @@ async def mark_offer_paid(callback: types.CallbackQuery):
     sales_chat_id = VENDORS[vendor_key]["sales_group_id"]
     thread_id = offer["thread_id"]
 
-    # Обновяваме иконката на темата на 🟢 (платено и завършено)
-    await update_topic_icon_status(sales_chat_id, thread_id, buyer_id, "🟢")
+    await update_topic_icon_status(sales_chat_id, thread_id, buyer_id, vendor_key, "🟢")
 
     await bot.send_message(buyer_id, "Payment confirmed. Thank you!")
 
@@ -666,7 +675,6 @@ async def from_group_media_and_text(message: types.Message):
         await message.reply("Do not write commission in the message.")
         return
 
-    # Препращане на съобщението от търговеца към клиента с ясен етикет
     vendor_name = VENDORS.get(vendor_key, {}).get("chat_name", "Vendor")
     header = f"<b>Отговор от: {vendor_name}</b>\n\n"
     
@@ -682,7 +690,6 @@ async def from_group_media_and_text(message: types.Message):
 
 @dp.message(F.chat.type == "private")
 async def from_buyer_media_and_text(message: types.Message):
-    global next_buyer_number
     if message.text and message.text.startswith("/"):
         return
 
@@ -693,17 +700,21 @@ async def from_buyer_media_and_text(message: types.Message):
     v = VENDORS.get(vendor_key, VENDORS["tidetron"])
     target_group_id = v["sales_group_id"]
 
-    thread_id = buyer_topics.get(buyer_id)
+    # Проверяваме тема специално за комбинацията (buyer_id, vendor_key)
+    topic_key = (buyer_id, vendor_key)
+    thread_id = buyer_topics.get(topic_key)
+
     if not thread_id:
         try:
-            current_num = next_buyer_number
-            next_buyer_number += 1
-            buyer_numbers[buyer_id] = current_num
+            if vendor_key not in next_buyer_number:
+                next_buyer_number[vendor_key] = 1
+            current_num = next_buyer_number[vendor_key]
+            next_buyer_number[vendor_key] += 1
+            buyer_numbers[topic_key] = current_num
             
-            # Започваме с иконка 🆕 (ново запитване)
             topic = await bot.create_forum_topic(target_group_id, topic_name(message.from_user, current_num, "🆕"))
             thread_id = topic.message_thread_id
-            buyer_topics[buyer_id] = thread_id
+            buyer_topics[topic_key] = thread_id
             topic_buyers[thread_id] = buyer_id
             topic_vendors[thread_id] = vendor_key
             save_data()
@@ -724,9 +735,6 @@ async def from_buyer_media_and_text(message: types.Message):
             return
 
     save_data()
-
-    # Ако е първо съобщение или в разговор, сменяме статуса на ⏳ (в разговор) ако е бил 🆕
-    # (Може да проверим дали текущото име започва с 🆕)
 
     if message.photo:
         await bot.send_photo(target_group_id, message.photo[-1].file_id, caption=message.caption, message_thread_id=thread_id)
