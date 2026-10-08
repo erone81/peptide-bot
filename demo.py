@@ -8,6 +8,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
+# Създаваме отделен рутер само за демото
 router = Router(name="demo")
 
 # --- КОНФИГУРАЦИЯ ЗА ДЕМОТО ---
@@ -58,21 +59,23 @@ async def progress(bot: Bot, chat_id: int, stages: list[str]) -> Message:
     for i, stage in enumerate(stages, 1):
         await asyncio.sleep(0.9)
         with suppress(Exception):
-            await bot.edit_message_text(f"{'▰' * i}{'▱' * (n - i)}  {stage}", chat_id=chat_id, message_id=msg.message_id, parse_mode="HTML")
+            await msg.edit_text(f"{'▰' * i}{'▱' * (n - i)}  {stage}", parse_mode="HTML")
     await asyncio.sleep(0.6)
     return msg
 
-async def mark(cb: CallbackQuery, label: str, bot: Bot) -> None:
+async def mark(cb: CallbackQuery, label: str) -> None:
     try:
         m = cb.message
         if not m: return
-        base_text = m.html_text if hasattr(m, 'html_text') and m.html_text else (m.text or "")
+        # Взимаме текста безопасно
+        base_text = getattr(m, 'html_text', getattr(m, 'text', ''))
+        if not base_text: base_text = ""
         text = f"{base_text}\n\n▸ <b>{label}</b>"
         with suppress(Exception):
             if m.caption: 
-                await bot.edit_message_caption(chat_id=m.chat.id, message_id=m.message_id, caption=text, reply_markup=None, parse_mode="HTML")
+                await m.edit_caption(caption=text, reply_markup=None, parse_mode="HTML")
             else: 
-                await bot.edit_message_text(chat_id=m.chat.id, message_id=m.message_id, text=text, reply_markup=None, parse_mode="HTML")
+                await m.edit_text(text, reply_markup=None, parse_mode="HTML")
     except Exception:
         pass
 
@@ -94,7 +97,6 @@ def _pdf_bytes(title: str, lines: list[str]) -> bytes:
     pdf += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF" % (len(bodies) + 1, xref)
     return bytes(pdf)
 
-# ----------------- ТОЗИ РЕД БЕШЕ СЧУПЕН И СЕГА Е ОПРАВЕН -----------------
 async def run_intro(bot: Bot, chat_id: int) -> None:
     await bot.send_message(chat_id, "✨ <b>DEMO MODE</b> ✨", parse_mode="HTML")
     await pause(bot, chat_id, 1.4)
@@ -111,19 +113,20 @@ async def run_intro(bot: Bot, chat_id: int) -> None:
     )
 
 @router.message(F.text.startswith("/start demo"))
-async def demo_entry(message: Message, bot: Bot) -> None:
-    await run_intro(bot, message.chat.id)
+async def demo_entry(message: Message) -> None:
+    await run_intro(message.bot, message.chat.id)
 
 @router.callback_query(DemoData.filter(F.a == "restart"))
-async def on_restart(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
+async def on_restart(cb: CallbackQuery, callback_data: DemoData) -> None:
     await cb.answer()
-    await run_intro(bot, cb.message.chat.id)
+    await run_intro(cb.message.bot, cb.message.chat.id)
 
 @router.callback_query(DemoData.filter(F.a == "begin"))
-async def on_begin(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
+async def on_begin(cb: CallbackQuery, callback_data: DemoData) -> None:
     await cb.answer()
+    bot = cb.message.bot
     cid = cb.message.chat.id
-    await mark(cb, "🎬 Let's go!", bot)
+    await mark(cb, "🎬 Let's go!")
     await pause(bot, cid, 1.5)
     await bot.send_message(
         cid,
@@ -136,11 +139,12 @@ async def on_begin(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None
     )
 
 @router.callback_query(DemoData.filter(F.a == "svc"))
-async def on_service(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
+async def on_service(cb: CallbackQuery, callback_data: DemoData) -> None:
     await cb.answer()
+    bot = cb.message.bot
     cid, s = cb.message.chat.id, callback_data.s
     e, n = SERVICES[s]
-    await mark(cb, f"{e} {n}", bot)
+    await mark(cb, f"{e} {n}")
     await pause(bot, cid, 1.3)
     await bot.send_message(
         cid,
@@ -150,10 +154,11 @@ async def on_service(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> No
     )
 
 @router.callback_query(DemoData.filter(F.a == "date"))
-async def on_date(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
+async def on_date(cb: CallbackQuery, callback_data: DemoData) -> None:
     await cb.answer()
+    bot = cb.message.bot
     cid, s, d = cb.message.chat.id, callback_data.s, callback_data.d
-    await mark(cb, f"📅 {DATES[d]}", bot)
+    await mark(cb, f"📅 {DATES[d]}")
     await pause(bot, cid, 1.2)
     await bot.send_message(
         cid,
@@ -163,8 +168,9 @@ async def on_date(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
     )
 
 @router.callback_query(DemoData.filter(F.a == "bud"))
-async def on_budget(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
+async def on_budget(cb: CallbackQuery, callback_data: DemoData) -> None:
     await cb.answer()
+    bot = cb.message.bot
     cid = cb.message.chat.id
     s, d, b = callback_data.s, callback_data.d, callback_data.b
     e, n = SERVICES[s]
@@ -172,11 +178,11 @@ async def on_budget(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> Non
     name = escape(cb.from_user.full_name)
     username = f"@{escape(cb.from_user.username)}" if cb.from_user.username else "no username"
 
-    await mark(cb, f"💰 {blabel}", bot)
+    await mark(cb, f"💰 {blabel}")
     await pause(bot, cid, 1.0)
     prog = await progress(bot, cid, ["Packing your request…", "Opening your private chat…", f"Notifying {DEMO_VENDOR}…"])
     with suppress(Exception):
-        await bot.edit_message_text("✅ <b>Request sent!</b>\n\n" f"{DEMO_VENDOR} usually replies within minutes. I'll message you here the second they do. 🔔", chat_id=cid, message_id=prog.message_id, parse_mode="HTML")
+        await prog.edit_text("✅ <b>Request sent!</b>\n\n" f"{DEMO_VENDOR} usually replies within minutes. I'll message you here the second they do. 🔔", parse_mode="HTML")
     await asyncio.sleep(2.2)
 
     await bot.send_message(
@@ -205,15 +211,16 @@ async def on_budget(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> Non
     )
 
 @router.callback_query(DemoData.filter(F.a == "offer"))
-async def on_offer(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
+async def on_offer(cb: CallbackQuery, callback_data: DemoData) -> None:
     await cb.answer()
+    bot = cb.message.bot
     cid = cb.message.chat.id
     s, d, b = callback_data.s, callback_data.d, callback_data.b
     _, price = BUDGETS[b]
     title, bullets = OFFERS[s]
     name = escape(cb.from_user.first_name)
 
-    await mark(cb, "💼 Switching to the vendor's seat", bot)
+    await mark(cb, "💼 Switching to the vendor's seat")
     await bot.send_message(
         cid,
         "🎬 <b>Step 2/4 · The vendor's move</b>\n\n"
@@ -265,17 +272,18 @@ async def on_offer(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None
     )
 
 @router.callback_query(DemoData.filter(F.a == "ask"))
-async def on_ask(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
+async def on_ask(cb: CallbackQuery, callback_data: DemoData) -> None:
     await cb.answer("💬 In real life this opens a chat. For now, tap “✅ I agree” to continue.", show_alert=True)
 
 @router.callback_query(DemoData.filter(F.a == "accept"))
-async def on_accept(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
+async def on_accept(cb: CallbackQuery, callback_data: DemoData) -> None:
     await cb.answer("🎉 Accepted!")
+    bot = cb.message.bot
     cid = cb.message.chat.id
     s, d, b = callback_data.s, callback_data.d, callback_data.b
     _, price = BUDGETS[b]
 
-    await mark(cb, "✅ I agree", bot)
+    await mark(cb, "✅ I agree")
     await pause(bot, cid, 1.5)
     await bot.send_message(
         cid,
@@ -287,8 +295,9 @@ async def on_accept(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> Non
     )
 
 @router.callback_query(DemoData.filter(F.a == "pay"))
-async def on_pay(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
+async def on_pay(cb: CallbackQuery, callback_data: DemoData) -> None:
     await cb.answer()
+    bot = cb.message.bot
     cid = cb.message.chat.id
     s, d, b = callback_data.s, callback_data.d, callback_data.b
     _, price = BUDGETS[b]
@@ -296,15 +305,15 @@ async def on_pay(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
     payout = price - fee
     name = escape(cb.from_user.full_name)
 
-    await mark(cb, "💳 Paying…", bot)
+    await mark(cb, "💳 Paying…")
     prog = await progress(bot, cid, ["Processing…", "Issuing receipt…"])
     with suppress(Exception):
-        await bot.edit_message_text(
+        await prog.edit_text(
             "🧾 <b>Payment Confirmed</b>\n\n"
             f"💳 Total: <b>{money(price)}</b>\n"
             f"📌 Order {TICKET} confirmed with <b>{DEMO_VENDOR}</b>\n\n"
             "<i>Thank you for your business!</i>",
-            chat_id=cid, message_id=prog.message_id, parse_mode="HTML"
+            parse_mode="HTML"
         )
     await asyncio.sleep(2.4)
 
@@ -326,10 +335,10 @@ async def on_pay(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
     await send_finale(bot, cid)
 
 @router.callback_query(DemoData.filter(F.a == "finale"))
-async def on_finale(cb: CallbackQuery, callback_data: DemoData, bot: Bot) -> None:
+async def on_finale(cb: CallbackQuery, callback_data: DemoData) -> None:
     await cb.answer()
-    await mark(cb, "⏭ Skipping ahead", bot)
-    await send_finale(bot, cb.message.chat.id)
+    await mark(cb, "⏭ Skipping ahead")
+    await send_finale(cb.message.bot, cb.message.chat.id)
 
 async def send_finale(bot: Bot, chat_id: int) -> None:
     await pause(bot, chat_id, 1.5)
