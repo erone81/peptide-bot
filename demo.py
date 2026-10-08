@@ -8,27 +8,54 @@ from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton
 
 router = Router(name="demo")
 
-# --- КОНФИГУРАЦИЯ ---
-DEMO_VENDOR = "NovaTech Solutions" 
+# --- КОНФИГУРАЦИЯ ЗА НАШАТА ПЛАТФОРМА ---
+DEMO_VENDOR = "Novagenix Peptides" 
 CONTACT_URL = "https://t.me/g3orgel" 
 COMMISSION_PCT = 10
 TICKET = "#1042"
 
-SERVICES = {
-    "pep": ("🧪", "Peptides (B2B Bulk)"),
-    "eqp": ("⚙️", "Lab Equipment"),
-    "con": ("📝", "Custom Synthesis"),
+# Продукти и категории, съобразени с нашия бизнес
+PRODUCTS = {
+    "bulk": ("🧪", "B2B Bulk Peptides (Vials / Kits)"),
+    "blend": ("🧬", "Custom Blends & Solutions"),
+    "raw": ("📦", "Raw Material Powder (MOQ 100g+)"),
 }
-DATES = {"asap": "ASAP", "month": "Within 30 days", "flex": "Flexible"}
-BUDGETS = {"s": ("$500–1k", 800), "m": ("$1k–5k", 3500), "l": ("$5k+", 6000)}
-OFFERS = {
-    "pep": ("Premium Bulk Package", ["cGMP compliant batches", "3rd-party Janoshik testing", "DDP Customs clearance included"]),
-    "eqp": ("Turnkey Lab Setup", ["Installation included", "1-year warranty", "24/7 technical support"]),
-    "con": ("Custom Formulation", ["Dedicated project manager", "Weekly progress reports", "IP protection guaranteed"]),
+
+VOLUMES = {
+    "v50": "50 – 200 vials",
+    "v500": "500+ vials (Wholesale)",
+    "kg": "100g+ Raw Powder",
+}
+
+DESTINATIONS = {
+    "eu": ("🇪🇺", "EU (DDP - No Customs Risk)"),
+    "us": ("🇺🇸", "USA Domestic (3-5 days)"),
+    "global": ("🌍", "Worldwide Express"),
+}
+
+OFFERS_DATA = {
+    "bulk": ("Novagenix Wholesale Package", [
+        "cGMP certified batch production",
+        "3rd-party Janoshik HPLC testing included",
+        "100% DDP Customs clearance & guaranteed delivery",
+        "Full reshipment protection on transit issues"
+    ]),
+    "blend": ("Custom Blend Production", [
+        "Tailor-made sequences & precise dosing",
+        "Strict laboratory quality control",
+        "Individually sealed and labeled vials",
+        "Full documentation and COA provided"
+    ]),
+    "raw": ("Raw Material Bulk Supply", [
+        "Purity guaranteed ≥98% (Verified)",
+        "Discreet double-vacuum sealing",
+        "Express air cargo with tracking",
+        "Dedicated account manager support"
+    ]),
 }
 
 def money(n: int) -> str:
-    return f"${n:,}"
+    return f"${n:,} USD"
 
 def magic(title: str, body: str) -> str:
     return f"🪄 <b>Behind the scenes · {title}</b>\n\n{body}"
@@ -92,19 +119,18 @@ def _pdf_bytes(title: str, lines: list[str]) -> bytes:
     pdf += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF" % (len(bodies) + 1, xref)
     return bytes(pdf)
 
-# --- ТОВА Е ФУНКЦИЯТА, КОЯТО main.py ОЧАКВА ---
+# --- НАЧАЛО НА ДЕМОТО ---
 async def run_intro(bot: Bot, chat_id: int) -> None:
-    await bot.send_message(chat_id, "✨ <b>DEMO MODE</b> ✨", parse_mode="HTML")
+    await bot.send_message(chat_id, "✨ <b>NOVAGENIX INTERACTIVE VENDOR DEMO</b> ✨", parse_mode="HTML")
     await pause(bot, chat_id, 1.4)
     await bot.send_message(
         chat_id,
-        "<b>Imagine every inquiry arriving like this…</b> 👇\n\n"
-        "In the next <b>60 seconds</b> you'll live a complete client journey, from first hello to a paid deal.\n"
-        "At every step, I'll show you what happens <i>inside your vendor group</i> at the same moment.\n\n"
-        "🎭 <b>You</b> = your future client\n"
-        "🪄 <b>Me</b> = your 24/7 automated sales assistant\n\n"
-        "<i>No setup. No signup. Just tap.</i>",
-        reply_markup=kb([("🎬 Start the tour", "demo_begin")], [("⏭ Skip to the summary", "demo_finale")]),
+        "<b>Виж как работи нашата B2B платформа за поръчки в реално време…</b> 👇\n\n"
+        "В следващите <b>90 секунди</b> ще преминеш през пълния цикъл на една клиентска заявка – от първия контакт до затворената сделка и автоматичното отчитане.\n\n"
+        "🎭 <b>Ти</b> = B2B купувач / партньор\n"
+        "🪄 <b>Системата</b> = Твоят автоматичен търговски асистент\n\n"
+        "<i>Без инсталация. Без формуляри. Само с едно докосване.</i>",
+        reply_markup=kb([("🎬 Стартирай демонстрацията", "demo_begin")], [("⏭ Към обобщението", "demo_finale")]),
         parse_mode="HTML"
     )
 
@@ -116,86 +142,103 @@ async def on_restart(cb: CallbackQuery) -> None:
 @router.callback_query(F.data == "demo_begin")
 async def on_begin(cb: CallbackQuery) -> None:
     await cb.answer()
-    await mark(cb, "🎬 Let's go!")
+    await mark(cb, "🎬 Започваме!")
     await pause(cb.message.bot, cb.message.chat.id, 1.5)
     
-    svc_buttons = [[(f"{e} {n}", f"demo_svc:{code}")] for code, (e, n) in SERVICES.items()]
+    prod_buttons = [[(f"{e} {n}", f"demo_prod:{code}")] for code, (e, n) in PRODUCTS.items()]
     await cb.message.answer(
-        "🎭 <b>Step 1/4 · You're the client now</b>\n\n"
-        f"You tapped a link on <b>{DEMO_VENDOR}</b>'s channel. "
-        "No website, no contact form, no waiting.\n\n"
-        "👋 <b>Hi! What are you looking for?</b>",
-        reply_markup=kb(*svc_buttons),
+        "📦 <b>Стъпка 1/4 · Избор на продуктов каталог</b>\n\n"
+        f"Клиентът кликва върху линк в канала на <b>{DEMO_VENDOR}</b> и веднага отваря директен чат с бота.\n\n"
+        "🧪 <b>Какъв тип продуктова категория го интересува?</b>",
+        reply_markup=kb(*prod_buttons),
         parse_mode="HTML"
     )
 
-@router.callback_query(F.data.startswith("demo_svc:"))
-async def on_service(cb: CallbackQuery) -> None:
+@router.callback_query(F.data.startswith("demo_prod:"))
+async def on_product(cb: CallbackQuery) -> None:
     await cb.answer()
-    s = cb.data.split(":")[1]
-    e, n = SERVICES[s]
+    prod_key = cb.data.split(":")[1]
+    e, n = PRODUCTS[prod_key]
     await mark(cb, f"{e} {n}")
     await pause(cb.message.bot, cb.message.chat.id, 1.3)
     
-    date_buttons = [[(f"📅 {label}", f"demo_date:{s}:{code}")] for code, label in DATES.items()]
+    vol_buttons = [[(f"📊 {label}", f"demo_vol:{prod_key}:{code}")] for code, label in VOLUMES.items()]
     await cb.message.answer(
-        f"Great choice! {e}\n\n📅 <b>When do you need it?</b>",
-        reply_markup=kb(*date_buttons),
+        f"Избрано: <b>{n}</b> {e}\n\n"
+        "📦 <b>Какъв е приблизителният обем на поръчката?</b>\n"
+        "<i>Това помага на екипа ви да подготви точна оферта на едро.</i>",
+        reply_markup=kb(*vol_buttons),
         parse_mode="HTML"
     )
 
-@router.callback_query(F.data.startswith("demo_date:"))
-async def on_date(cb: CallbackQuery) -> None:
+@router.callback_query(F.data.startswith("demo_vol:"))
+async def on_volume(cb: CallbackQuery) -> None:
     await cb.answer()
     parts = cb.data.split(":")
-    s, d = parts[1], parts[2]
-    await mark(cb, f"📅 {DATES[d]}")
+    prod_key, vol_code = parts[1], parts[2]
+    vol_label = VOLUMES[vol_code]
+    await mark(cb, f"📊 {vol_label}")
     await pause(cb.message.bot, cb.message.chat.id, 1.2)
     
-    bud_buttons = [[(f"💰 {label}", f"demo_bud:{s}:{d}:{code}")] for code, (label, _) in BUDGETS.items()]
+    dest_buttons = [[(f"{e} {label}", f"demo_dest:{prod_key}:{vol_code}:{code}")] for code, (e, label) in DESTINATIONS.items()]
     await cb.message.answer(
-        "💰 <b>And your approximate budget?</b>\n<i>Just a rough range, it helps tailor the offer.</i>",
-        reply_markup=kb(*bud_buttons),
+        "🌍 <b>Дестинация и логистика:</b>\n"
+        "<i>Изберете крайна точка за доставка и митническо обслужване (DDP):</i>",
+        reply_markup=kb(*dest_buttons),
         parse_mode="HTML"
     )
 
-@router.callback_query(F.data.startswith("demo_bud:"))
-async def on_budget(cb: CallbackQuery) -> None:
+@router.callback_query(F.data.startswith("demo_dest:"))
+async def on_destination(cb: CallbackQuery) -> None:
     await cb.answer()
     parts = cb.data.split(":")
-    s, d, b = parts[1], parts[2], parts[3]
-    e, n = SERVICES[s]
-    blabel, _ = BUDGETS[b]
+    prod_key, vol_code, dest_code = parts[1], parts[2], parts[3]
+    e, dest_label = DESTINATIONS[dest_code]
+    vol_label = VOLUMES[vol_code]
+    _, prod_name = PRODUCTS[prod_key]
+    
     name = escape(cb.from_user.full_name)
     username = f"@{escape(cb.from_user.username)}" if cb.from_user.username else "no username"
 
-    await mark(cb, f"💰 {blabel}")
+    await mark(cb, f"{e} {dest_label}")
     await pause(cb.message.bot, cb.message.chat.id, 1.0)
-    prog = await progress(cb.message.bot, cb.message.chat.id, ["Packing your request…", "Opening your private chat…", f"Notifying {DEMO_VENDOR}…"])
+    
+    prog = await progress(cb.message.bot, cb.message.chat.id, [
+        "Формиране на заявката…",
+        "Създаване на изолирана тема (Forum Topic)…",
+        f"Нотифициране на екипа на {DEMO_VENDOR}…"
+    ])
+    
     with suppress(Exception):
-        await prog.edit_text("✅ <b>Request sent!</b>\n\n" f"{DEMO_VENDOR} usually replies within minutes. I'll message you here the second they do. 🔔", parse_mode="HTML")
+        await prog.edit_text(
+            "✅ <b>Заявката е изпратена успешно!</b>\n\n"
+            f"Екипът на <b>{DEMO_VENDOR}</b> преглежда спецификациите ви и ще ви отговори до минути с официална оферта. 🔔",
+            parse_mode="HTML"
+        )
     await asyncio.sleep(2.2)
 
+    # Обяснение на бекенд магията за вендора
     await cb.message.answer(
         magic(
-            "your vendor group",
-            "In that very second, a new <b>Forum Topic</b> appeared in your private vendor group:\n\n"
+            "Какво вижда вендорът в своята група",
+            "В същата секунда, в закритата служебна група на вашия бизнес се появява **отделна тема (Forum Topic)**:\n\n"
             "<blockquote>"
             f"🧵 <b>{TICKET} · {name}</b>  🆕\n"
-            f"{e} {n}\n"
-            f"📅 {DATES[d]}   💰 {blabel}\n"
-            f"👤 {username}   ·   first contact"
+            f"📦 {prod_name}\n"
+            f"📊 Обем: {vol_label}   {e} {dest_label}\n"
+            f"👤 {username}   ·   B2B лид"
             "</blockquote>\n"
-            "🗂 <b>One client = one topic.</b> Full history, zero scrolling, zero mixed-up chats.\n"
-            "🔔 You get notified instantly.\n"
-            "👥 You just type naturally to reply.",
+            "🗂 <b>Пълна изолация:</b> Всеки клиент си има собствена тема с цялата история на кореспонденцията.\n"
+            "🔔 <b>Моментален известител:</b> Мениджърите ви получават нотификация веднага.\n"
+            "👥 <b>Екипна работа:</b> Колегите могат да се включват в темата, без клиентът да разбере.",
         ),
         parse_mode="HTML"
     )
     await asyncio.sleep(2.5)
     await cb.message.answer(
-        "Now flip the script. 🔄\nYou're the vendor, and the client is waiting…",
-        reply_markup=kb([("💼 Reply as the vendor", f"demo_offer:{s}:{d}:{b}")]),
+        "🔄 <b>Сега сменяме ролята!</b>\n"
+        "Представи си, че си мениджър на Novagenix и клиентът чака официална оферта…",
+        reply_markup=kb([("💼 Създай оферта като вендор", f"demo_offer:{prod_key}:{vol_code}:{dest_code}")]),
         parse_mode="HTML"
     )
 
@@ -203,112 +246,110 @@ async def on_budget(cb: CallbackQuery) -> None:
 async def on_offer(cb: CallbackQuery) -> None:
     await cb.answer()
     parts = cb.data.split(":")
-    s, d, b = parts[1], parts[2], parts[3]
-    _, price = BUDGETS[b]
-    title, bullets = OFFERS[s]
+    prod_key = parts[1]
+    title, bullets = OFFERS_DATA[prod_key]
     name = escape(cb.from_user.first_name)
+    price = 3850 if prod_key == "bulk" else (5200 if prod_key == "blend" else 4500)
 
-    await mark(cb, "💼 Switching to the vendor's seat")
+    await mark(cb, "💼 Преминаване към ролята на вендор")
     await cb.message.answer(
-        "🎬 <b>Step 2/4 · The vendor's move</b>\n\n"
-        "Inside the topic, you simply tap the pinned <b>📝 Make offer</b> button, type the details, and hit Send.\n"
-        f"<i>{DEMO_VENDOR} is typing…</i>",
+        "📋 <b>Стъпка 2/4 · Изготвяне на оферта от вендора</b>\n\n"
+        "Вътре в темата мениджърът натиска бутона <b>📝 Make offer</b>, въвежда детайлите и цената в USD.\n"
+        f"<i>{DEMO_VENDOR} подготвя предложението…</i>",
         parse_mode="HTML"
     )
     await pause(cb.message.bot, cb.message.chat.id, 3.8)
 
     caption = (
-        f"✨ <b>Official Offer for {name}</b>\n"
-        f"<b>{DEMO_VENDOR}</b> · ✔️ Verified\n"
+        f"✨ <b>Официална оферта за {name}</b>\n"
+        f"<b>{DEMO_VENDOR}</b> · ✅ Verified B2B Supplier\n"
         "━━━━━━━━━━━━━━━\n"
         f"📦 <b>{title}</b>\n"
         + "\n".join(f"  ✅ {x}" for x in bullets)
         + "\n━━━━━━━━━━━━━━━\n"
-        f"💰 <b>Total: {money(price)}</b>"
+        f"💰 <b>Обща сума: {money(price)}</b>"
     )
     markup = kb(
-        [("✅ I agree", f"demo_accept:{s}:{d}:{b}")],
-        [("💬 Ask a question", "demo_ask")],
+        [("✅ Съгласен съм / Потвърди", f"demo_accept:{price}")],
+        [("💬 Задай въпрос", "demo_ask")],
     )
     await cb.message.answer(caption, reply_markup=markup, parse_mode="HTML")
 
+    # Генериране на PDF предложение в паметта
     await pause(cb.message.bot, cb.message.chat.id, 1.6)
     pdf = _pdf_bytes(
-        f"{DEMO_VENDOR} - Proposal {TICKET}",
+        f"{DEMO_VENDOR} - B2B Proposal {TICKET}",
         [f"Prepared for: {cb.from_user.full_name}", "",
          f"Package: {title}", *[f"- {x}" for x in bullets], "",
-         f"Total: {money(price)}", "",
-         "Generated automatically by Trusted Vendors Bot."],
+         f"Total Amount: {money(price)}", "",
+         "Certified Quality & DDP Compliance - Novagenix Peptides."],
     )
     await cb.message.answer_document(
-        BufferedInputFile(pdf, filename=f"Offer-{TICKET[1:]}.pdf"),
-        caption="📎 <b>Detailed proposal (PDF)</b>, generated on the fly.",
+        BufferedInputFile(pdf, filename=f"Novagenix-Offer-{TICKET[1:]}.pdf"),
+        caption="📎 <b>Официална спецификация и оферта (PDF)</b>, генерирана автоматично.",
         parse_mode="HTML"
     )
     await asyncio.sleep(2.0)
     await cb.message.answer(
         magic(
-            "what you just did",
-            "⚡ <b>A couple of taps</b> produced a branded offer card and a PDF proposal, all delivered inside the client's chat.\n"
-            "🏷 Your clients see a polished, verified business, not a random DM.\n"
-            "👆 <b>Tap “✅ I agree”</b> on the card above to keep going.",
+            "Професионализъм на най-високо ниво",
+            "⚡ Ботът автоматично комбинира текстовата оферта, интерактивните бутони и официалния PDF документ в чата на купувача.\n"
+            "🏷 Клиентът вижда луксозен брандинг и пълна прозрачност, което драстично вдига процента на затворените сделки.",
         ),
         parse_mode="HTML"
     )
 
 @router.callback_query(F.data == "demo_ask")
 async def on_ask(cb: CallbackQuery) -> None:
-    await cb.answer("💬 In real life this opens a chat. For now, tap “✅ I agree” to continue.", show_alert=True)
+    await cb.answer("💬 В реалната система това отваря директен диалог в същата тема. За целта на демото, натисни „✅ Съгласен съм“.", show_alert=True)
 
 @router.callback_query(F.data.startswith("demo_accept:"))
 async def on_accept(cb: CallbackQuery) -> None:
-    await cb.answer("🎉 Accepted!")
-    parts = cb.data.split(":")
-    s, d, b = parts[1], parts[2], parts[3]
-    _, price = BUDGETS[b]
+    await cb.answer("🎉 Поръчката е потвърдена!")
+    price = int(cb.data.split(":")[1])
 
-    await mark(cb, "✅ I agree")
+    await mark(cb, "✅ Офертата е приета")
     await pause(cb.message.bot, cb.message.chat.id, 1.5)
     await cb.message.answer(
-        "🎬 <b>Step 3/4 · Locking in the deal</b>\n\n"
-        "🎉 <b>Wonderful choice!</b>\n"
-        f"The total amount is <b>{money(price)}</b>.",
-        reply_markup=kb([(f"💳 Mark as Paid (demo)", f"demo_pay:{s}:{d}:{b}")]),
+        "💳 <b>Стъпка 3/4 · Финализиране и плащане</b>\n\n"
+        "🎉 <b>Сделката е договорена!</b>\n"
+        f"Сума за плащане: <b>{money(price)}</b>.\n"
+        "<i>Натисни бутона по-долу за симулиране на плащане от клиента:</i>",
+        reply_markup=kb([("💳 Маркирай като платено (Демо)", f"demo_pay:{price}")]),
         parse_mode="HTML"
     )
 
 @router.callback_query(F.data.startswith("demo_pay:"))
 async def on_pay(cb: CallbackQuery) -> None:
     await cb.answer()
-    parts = cb.data.split(":")
-    b = parts[3]
-    _, price = BUDGETS[b]
-    fee = price * COMMISSION_PCT // 100
+    price = int(cb.data.split(":")[1])
+    fee = round(price * COMMISSION_PCT / 100, 2)
     payout = price - fee
     name = escape(cb.from_user.full_name)
 
-    await mark(cb, "💳 Paying…")
-    prog = await progress(cb.message.bot, cb.message.chat.id, ["Processing…", "Issuing receipt…"])
+    await mark(cb, "💳 Плащането е отразено")
+    prog = await progress(cb.message.bot, cb.message.chat.id, ["Обработка на транзакцията…", "Генериране на отчет за комисионната…"])
     with suppress(Exception):
         await prog.edit_text(
-            "🧾 <b>Payment Confirmed</b>\n\n"
-            f"💳 Total: <b>{money(price)}</b>\n"
-            f"📌 Order {TICKET} confirmed with <b>{DEMO_VENDOR}</b>\n\n"
-            "<i>Thank you for your business!</i>",
+            "🧾 <b>Плащането е потвърдено успешно!</b>\n\n"
+            f"💳 Обща сума: <b>{money(price)}</b>\n"
+            f"📌 Поръчка {TICKET} е официално затворена с <b>{DEMO_VENDOR}</b>\n\n"
+            "<i>Благодарим ви за доверието! Логистиката е стартирана.</i>",
             parse_mode="HTML"
         )
     await asyncio.sleep(2.4)
 
+    # Обяснение на автоматичното отчитане на комисионната
     await cb.message.answer(
         magic(
-            "deal closed 🎉",
+            "Автоматично счетоводство и комисионни",
             "<blockquote>"
-            f"🧵 {TICKET} · {name}  →  🟢 <b>PAID</b>"
+            f"🧵 {TICKET} · {name}  →  🟢 <b>ЗАВЪРШЕНА СДЕЛКА (PAID)</b>"
             "</blockquote>\n"
-            f"💰 Deal value: <b>{money(price)}</b>\n"
-            f"🏦 Platform Commission ({COMMISSION_PCT}%): <b>{money(fee)}</b>\n"
-            f"👛 Your payout: <b>{money(payout)}</b>\n\n"
-            "🧮 Everything is tracked. You just click <b>✅ Paid</b> in your group, and the bot handles the accounting.",
+            f"💰 Общ обем на сделката: <b>{money(price)}</b>\n"
+            f"🏦 Платформена комисионна ({COMMISSION_PCT}%): <b>${fee:,.2f} USD</b> (Калкулирана автоматично)\n"
+            f"👛 Чист приход за вендора: <b>${payout:,.2f} USD</b>\n\n"
+            "🧮 <b>Край на излишните таблици и спорове:</b> Системата сама следи дължимите комисионни, генерира справки с командата `/commission` и показва кой какво дължи в реално време.",
         ),
         parse_mode="HTML"
     )
@@ -318,25 +359,25 @@ async def on_pay(cb: CallbackQuery) -> None:
 @router.callback_query(F.data == "demo_finale")
 async def on_finale(cb: CallbackQuery) -> None:
     await cb.answer()
-    await mark(cb, "⏭ Skipping ahead")
+    await mark(cb, "⏭ Към финала")
     await send_finale(cb.message.bot, cb.message.chat.id)
 
 async def send_finale(bot: Bot, chat_id: int) -> None:
     await pause(bot, chat_id, 1.5)
     await bot.send_message(
         chat_id,
-        "🏁 <b>Step 4/4 · Tour complete!</b>\n\n"
-        "Here's what you just experienced:\n\n"
-        "✅ A seamless client journey in just a few taps\n"
-        "✅ Every inquiry organized in its <b>own Forum Topic</b>\n"
-        "✅ Branded <b>offer cards + PDFs</b> without leaving Telegram\n"
-        "✅ <b>Commissions tracked automatically</b>\n\n"
-        "⏱ <b>Setup takes less than 5 minutes:</b>\n"
-        "<blockquote>1️⃣ Add the bot to your group  ·  2️⃣ We generate your link  ·  3️⃣ Done</blockquote>\n"
-        "<i>Ready to level up your Telegram sales?</i> 🚀",
+        "🏁 <b>Стъпка 4/4 · Демонстрацията завърши успешно!</b>\n\n"
+        "Ето какво видя в действие:\n\n"
+        "✅ <b>B2B поръчки без сайт и формуляри</b> в рамките на секунди\n"
+        "✅ <b>Пълна организация</b> – всеки клиент е в собствена тема (Forum Topic)\n"
+        "✅ <b>Професионални оферти и PDF спецификации</b> с едно натискане\n"
+        "✅ <b>Автоматично следене на 10% комисионна</b> и финансови отчети\n\n"
+        "⏱ <b>Интеграцията отнема по-малко от 5 минути:</b>\n"
+        "<blockquote>1️⃣ Добавяш бота в групата  ·  2️⃣ Създаваме твоя линк  ·  3️⃣ Готов си за продажби</blockquote>\n"
+        "<i>Готов ли си да пренесеш продажбите на Novagenix на следващото ниво?</i> 🚀",
         reply_markup=kb(
-            [("💬 Contact me to start", CONTACT_URL)],
-            [("🔁 Replay the demo", "demo_restart")],
+            [("💬 Свържи се с нас за старт", CONTACT_URL)],
+            [("🔁 Пусни демото отначало", "demo_restart")],
         ),
         parse_mode="HTML"
     )
