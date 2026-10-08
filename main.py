@@ -141,17 +141,16 @@ VENDORS = {
     }
 }
 
-# Ключове за темите: съхраняваме по двойка (buyer_id, vendor_key)
-buyer_topics = {} # {(buyer_id, vendor_key): thread_id}
-topic_buyers = {} # {thread_id: buyer_id}
-topic_vendors = {} # {thread_id: vendor_key}
+buyer_topics = {}
+topic_buyers = {}
+topic_vendors = {}
 buyer_active_vendor = {}
 buyer_names = {}
-buyer_numbers = {} # {(buyer_id, vendor_key): num}
+buyer_numbers = {}
 pending = {}
 locked_offers = []
 next_offer_number = 1001
-next_buyer_number = {} # {vendor_key: counter}
+next_buyer_number = {}
 proof_topic_id = None
 waiting_offer_text = {}
 
@@ -171,6 +170,15 @@ def can_manage_vendor(user: types.User, vendor_key: str) -> bool:
         return False
     mapped = VENDOR_ACCOUNTS.get(user.username.lower())
     return mapped == vendor_key
+
+def can_view_commission(user: types.User) -> bool:
+    if not user:
+        return False
+    if is_admin(user):
+        return True
+    if user.username and user.username.lower() in [v.lower() for v in VENDOR_ACCOUNTS.keys()]:
+        return True
+    return False
 
 def vendor_list_keyboard():
     buttons = []
@@ -200,6 +208,11 @@ def confirm_keyboard(key):
 def paid_keyboard(key):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Paid", callback_data=f"paid:{key}")]
+    ])
+
+def mark_comm_keyboard(code):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"🟢 Mark Paid ({code})", callback_data=f"mark_paid:{code}")]
     ])
 
 def topic_name(user: types.User, num: int, icon: str = "🆕") -> str:
@@ -237,7 +250,6 @@ def buyer_label(user: types.User) -> str:
 
 def save_data():
     try:
-        # Сериализираме ключовете от tuple в string за JSON
         serialized_buyer_topics = {f"{k[0]}_{k[1]}": v for k, v in buyer_topics.items()}
         serialized_buyer_numbers = {f"{k[0]}_{k[1]}": v for k, v in buyer_numbers.items()}
 
@@ -267,12 +279,7 @@ def load_data():
     global buyer_topics, topic_buyers, topic_vendors, buyer_active_vendor, buyer_names, buyer_numbers
     global pending, locked_offers, next_offer_number, next_buyer_number, proof_topic_id
     
-    if os.path.exists(DATA_PATH):
-        try:
-            os.remove(DATA_PATH)
-            print("routes.json automatically reset on startup.")
-        except Exception as e:
-            print(f"Could not reset routes.json: {e}")
+    if not os.path.exists(DATA_PATH):
         return
 
     try:
@@ -301,10 +308,13 @@ def load_data():
         pending = data.get("pending", {})
         locked_offers = data.get("locked_offers", [])
         next_offer_number = int(data.get("next_offer_number", 1001))
-        next_buyer_number = data.get("next_buyer_number", 1)
-        if isinstance(next_buyer_number, int):
-            # Конвертираме стар формат към речник по вендори
-            next_buyer_number = {"tidetron": next_buyer_number, "novapure": next_buyer_number, "handom": next_buyer_number}
+        
+        raw_nbn = data.get("next_buyer_number", 1)
+        if isinstance(raw_nbn, int):
+            next_buyer_number = {"tidetron": raw_nbn, "novapure": raw_nbn, "handom": raw_nbn}
+        else:
+            next_buyer_number = raw_nbn
+
         proof_topic_id = data.get("proof_topic_id")
     except Exception as e:
         print(f"Error loading routes.json: {e}")
@@ -376,6 +386,95 @@ async def open_vendor_callback(callback: types.CallbackQuery):
     await callback.answer()
     vendor_key = callback.data.split(":", 1)[1]
     await send_vendor_welcome(callback.message, vendor_key)
+
+@dp.message(Command("commission"))
+async def commission_stats(message: types.Message):
+    if not can_view_commission(message.from_user):
+        return
+    
+    user_vendor = VENDOR_ACCOUNTS.get(message.from_user.username.lower()) if message.from_user.username else None
+    
+    if user_vendor and not is_admin(message.from_user):
+        filtered_offers = [o for o in locked_offers if o.get("vendor_key") == user_vendor]
+        vendor_title = VENDORS.get(user_vendor, {}).get("chat_name", user_vendor.upper())
+        header_title = f"📊 <b>COMMISSION &amp; SALES STATS ({vendor_title})</b>"
+    else:
+        filtered_offers = locked_offers
+        header_title = "📊 <b>COMMISSION &amp; SALES STATS (ALL VENDORS)</b>"
+
+    total_sales = sum(o.get("total", 0) for o in filtered_offers)
+    total_comm = sum(o.get("commission", 0) for o in filtered_offers)
+    unpaid_comm = sum(o.get("commission", 0) for o in filtered_offers if not o.get("paid", False))
+    paid_comm = sum(o.get("commission", 0) for o in filtered_offers if o.get("paid", False))
+    
+    summary = (
+        f"{header_title}\n\n"
+        f"📦 Total Locked Offers: {len(filtered_offers)}\n"
+        f"💰 Total Sales Volume: {money(total_sales)}\n"
+        f"💎 Total Commission (10%): {money(total_comm)}\n"
+        f"✅ Already Paid: {money(paid_comm)}\n"
+        f"⏳ <b>Remaining Due (Unpaid):</b> {money(unpaid_comm)}\n\n"
+        f"━━━━━━━━━━━━\n"
+        f"📌 <b>UNPAID DEALS BREAKDOWN:</b>"
+    )
+    
+    try:
+        await message.answer(summary, parse_mode="HTML", message_thread_id=message.message_thread_id)
+    except Exception:
+        await message.answer(summary, parse_mode="HTML")
+
+    unpaid_list = [o for o in filtered_offers if not o.get("paid", False)]
+    if not unpaid_list:
+        await message.answer("🎉 No unpaid commissions! All deals are settled.", message_thread_id=message.message_thread_id)
+        return
+
+    admin_user = is_admin(message.from_user)
+
+    for o in unpaid_list:
+        code = o.get("code")
+        buyer_name = buyer_names.get(o.get("buyer_id"), "Buyer")
+        total = o.get("total", 0)
+        comm = o.get("commission", 0)
+        v_key = o.get("vendor_key", "tidetron")
+        v_name = VENDORS.get(v_key, {}).get("chat_name", "")
+        
+        txt = (
+            f"🏷️ <b>Offer:</b> {code} | 🏢 <b>Vendor:</b> {v_name}\n"
+            f"👤 <b>Buyer:</b> {buyer_name}\n"
+            f"💰 <b>Total:</b> {money(total)} | 💎 <b>Commission:</b> <b>{money(comm)}</b>"
+        )
+        try:
+            if admin_user:
+                await message.answer(txt, parse_mode="HTML", message_thread_id=message.message_thread_id, reply_markup=mark_comm_keyboard(code))
+            else:
+                await message.answer(txt, parse_mode="HTML", message_thread_id=message.message_thread_id)
+        except Exception:
+            if admin_user:
+                await message.answer(txt, parse_mode="HTML", reply_markup=mark_comm_keyboard(code))
+            else:
+                await message.answer(txt, parse_mode="HTML")
+
+@dp.callback_query(F.data.startswith("mark_paid:"))
+async def mark_commission_paid(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user):
+        await callback.answer("Only the administrator can mark commissions as paid.", show_alert=True)
+        return
+
+    code = callback.data.split(":", 1)[1]
+    found = False
+    for o in locked_offers:
+        if o.get("code") == code:
+            o["paid"] = True
+            found = True
+            break
+    
+    if found:
+        save_data()
+        await callback.answer(f"Offer {code} commission marked as PAID!")
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.reply(f"✅ Commission for offer <b>{code}</b> has been successfully marked as <b>PAID</b>.", parse_mode="HTML")
+    else:
+        await callback.answer("Offer not found.", show_alert=True)
 
 @dp.callback_query(F.data == "start_make_offer")
 async def make_offer_clicked(callback: types.CallbackQuery):
@@ -700,7 +799,6 @@ async def from_buyer_media_and_text(message: types.Message):
     v = VENDORS.get(vendor_key, VENDORS["tidetron"])
     target_group_id = v["sales_group_id"]
 
-    # Проверяваме тема специално за комбинацията (buyer_id, vendor_key)
     topic_key = (buyer_id, vendor_key)
     thread_id = buyer_topics.get(topic_key)
 
