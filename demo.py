@@ -2,16 +2,14 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 from html import escape
-from aiogram import Bot, F, Router
+from aiogram import F, Router
 from aiogram.enums import ChatAction
-from aiogram.exceptions import TelegramBadRequest
-from aiogram.filters.callback_data import CallbackData
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-# Създаваме отделен рутер само за демото
+# Отделен рутер
 router = Router(name="demo")
 
-# --- КОНФИГУРАЦИЯ ЗА ДЕМОТО ---
+# --- КОНФИГУРАЦИЯ ---
 DEMO_VENDOR = "NovaTech Solutions" 
 CONTACT_URL = "https://t.me/g3orgel" 
 COMMISSION_PCT = 10
@@ -30,46 +28,46 @@ OFFERS = {
     "con": ("Custom Formulation", ["Dedicated project manager", "Weekly progress reports", "IP protection guaranteed"]),
 }
 
-class DemoData(CallbackData, prefix="demo"):
-    a: str
-    s: str = ""
-    d: str = ""
-    b: str = ""
-
+# --- ПОМОЩНИ ФУНКЦИИ ---
 def money(n: int) -> str:
     return f"${n:,}"
-
-def kb(*rows) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t, callback_data=v.pack()) if isinstance(v, CallbackData) else InlineKeyboardButton(text=t, url=v) for t, v in row]
-        for row in rows
-    ])
 
 def magic(title: str, body: str) -> str:
     return f"🪄 <b>Behind the scenes · {title}</b>\n\n{body}"
 
-async def pause(bot: Bot, chat_id: int, seconds: float, action: ChatAction = ChatAction.TYPING) -> None:
+# Железен генератор на клавиатури (обикновен текст)
+def kb(*rows):
+    inline_kb = []
+    for row in rows:
+        kb_row = []
+        for text, data in row:
+            if data.startswith("http"):
+                kb_row.append(InlineKeyboardButton(text=text, url=data))
+            else:
+                kb_row.append(InlineKeyboardButton(text=text, callback_data=data))
+        inline_kb.append(kb_row)
+    return InlineKeyboardMarkup(inline_keyboard=inline_kb)
+
+async def pause(msg: Message, seconds: float):
     with suppress(Exception):
-        await bot.send_chat_action(chat_id, action)
+        await msg.bot.send_chat_action(msg.chat.id, ChatAction.TYPING)
     await asyncio.sleep(seconds)
 
-async def progress(bot: Bot, chat_id: int, stages: list[str]) -> Message:
+async def progress(msg: Message, stages: list[str]) -> Message:
     n = len(stages)
-    msg = await bot.send_message(chat_id, f"{'▱' * n}  {stages[0]}", parse_mode="HTML")
+    status_msg = await msg.answer(f"{'▱' * n}  {stages[0]}", parse_mode="HTML")
     for i, stage in enumerate(stages, 1):
         await asyncio.sleep(0.9)
         with suppress(Exception):
-            await msg.edit_text(f"{'▰' * i}{'▱' * (n - i)}  {stage}", parse_mode="HTML")
+            await status_msg.edit_text(f"{'▰' * i}{'▱' * (n - i)}  {stage}", parse_mode="HTML")
     await asyncio.sleep(0.6)
-    return msg
+    return status_msg
 
-async def mark(cb: CallbackQuery, label: str) -> None:
+async def mark(cb: CallbackQuery, label: str):
     try:
         m = cb.message
         if not m: return
-        # Взимаме текста безопасно
-        base_text = getattr(m, 'html_text', getattr(m, 'text', ''))
-        if not base_text: base_text = ""
+        base_text = m.html_text if hasattr(m, 'html_text') and m.html_text else (m.text or "")
         text = f"{base_text}\n\n▸ <b>{label}</b>"
         with suppress(Exception):
             if m.caption: 
@@ -97,96 +95,94 @@ def _pdf_bytes(title: str, lines: list[str]) -> bytes:
     pdf += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF" % (len(bodies) + 1, xref)
     return bytes(pdf)
 
-async def run_intro(bot: Bot, chat_id: int) -> None:
-    await bot.send_message(chat_id, "✨ <b>DEMO MODE</b> ✨", parse_mode="HTML")
-    await pause(bot, chat_id, 1.4)
-    await bot.send_message(
-        chat_id,
+# --- ОСНОВНА ЛОГИКА ---
+async def run_intro(message: Message) -> None:
+    await message.answer("✨ <b>DEMO MODE</b> ✨", parse_mode="HTML")
+    await pause(message, 1.4)
+    await message.answer(
         "<b>Imagine every inquiry arriving like this…</b> 👇\n\n"
         "In the next <b>60 seconds</b> you'll live a complete client journey, from first hello to a paid deal.\n"
         "At every step, I'll show you what happens <i>inside your vendor group</i> at the same moment.\n\n"
         "🎭 <b>You</b> = your future client\n"
         "🪄 <b>Me</b> = your 24/7 automated sales assistant\n\n"
         "<i>No setup. No signup. Just tap.</i>",
-        reply_markup=kb([("🎬 Start the tour", DemoData(a="begin"))], [("⏭ Skip to the summary", DemoData(a="finale"))]),
+        reply_markup=kb([("🎬 Start the tour", "demo_begin")], [("⏭ Skip to the summary", "demo_finale")]),
         parse_mode="HTML"
     )
 
 @router.message(F.text.startswith("/start demo"))
 async def demo_entry(message: Message) -> None:
-    await run_intro(message.bot, message.chat.id)
+    await run_intro(message)
 
-@router.callback_query(DemoData.filter(F.a == "restart"))
-async def on_restart(cb: CallbackQuery, callback_data: DemoData) -> None:
+@router.callback_query(F.data == "demo_restart")
+async def on_restart(cb: CallbackQuery) -> None:
     await cb.answer()
-    await run_intro(cb.message.bot, cb.message.chat.id)
+    await run_intro(cb.message)
 
-@router.callback_query(DemoData.filter(F.a == "begin"))
-async def on_begin(cb: CallbackQuery, callback_data: DemoData) -> None:
+@router.callback_query(F.data == "demo_begin")
+async def on_begin(cb: CallbackQuery) -> None:
     await cb.answer()
-    bot = cb.message.bot
-    cid = cb.message.chat.id
     await mark(cb, "🎬 Let's go!")
-    await pause(bot, cid, 1.5)
-    await bot.send_message(
-        cid,
+    await pause(cb.message, 1.5)
+    
+    svc_buttons = [[(f"{e} {n}", f"demo_svc:{code}")] for code, (e, n) in SERVICES.items()]
+    await cb.message.answer(
         "🎭 <b>Step 1/4 · You're the client now</b>\n\n"
         f"You tapped a link on <b>{DEMO_VENDOR}</b>'s channel. "
         "No website, no contact form, no waiting.\n\n"
         "👋 <b>Hi! What are you looking for?</b>",
-        reply_markup=kb(*[[(f"{e} {n}", DemoData(a="svc", s=code))] for code, (e, n) in SERVICES.items()]),
+        reply_markup=kb(*svc_buttons),
         parse_mode="HTML"
     )
 
-@router.callback_query(DemoData.filter(F.a == "svc"))
-async def on_service(cb: CallbackQuery, callback_data: DemoData) -> None:
+@router.callback_query(F.data.startswith("demo_svc:"))
+async def on_service(cb: CallbackQuery) -> None:
     await cb.answer()
-    bot = cb.message.bot
-    cid, s = cb.message.chat.id, callback_data.s
+    s = cb.data.split(":")[1]
     e, n = SERVICES[s]
     await mark(cb, f"{e} {n}")
-    await pause(bot, cid, 1.3)
-    await bot.send_message(
-        cid,
+    await pause(cb.message, 1.3)
+    
+    date_buttons = [[(f"📅 {label}", f"demo_date:{s}:{code}")] for code, label in DATES.items()]
+    await cb.message.answer(
         f"Great choice! {e}\n\n📅 <b>When do you need it?</b>",
-        reply_markup=kb(*[[(f"📅 {label}", DemoData(a="date", s=s, d=code))] for code, label in DATES.items()]),
+        reply_markup=kb(*date_buttons),
         parse_mode="HTML"
     )
 
-@router.callback_query(DemoData.filter(F.a == "date"))
-async def on_date(cb: CallbackQuery, callback_data: DemoData) -> None:
+@router.callback_query(F.data.startswith("demo_date:"))
+async def on_date(cb: CallbackQuery) -> None:
     await cb.answer()
-    bot = cb.message.bot
-    cid, s, d = cb.message.chat.id, callback_data.s, callback_data.d
+    parts = cb.data.split(":")
+    s, d = parts[1], parts[2]
     await mark(cb, f"📅 {DATES[d]}")
-    await pause(bot, cid, 1.2)
-    await bot.send_message(
-        cid,
+    await pause(cb.message, 1.2)
+    
+    bud_buttons = [[(f"💰 {label}", f"demo_bud:{s}:{d}:{code}")] for code, (label, _) in BUDGETS.items()]
+    await cb.message.answer(
         "💰 <b>And your approximate budget?</b>\n<i>Just a rough range, it helps tailor the offer.</i>",
-        reply_markup=kb(*[[(f"💰 {label}", DemoData(a="bud", s=s, d=d, b=code))] for code, (label, _) in BUDGETS.items()]),
+        reply_markup=kb(*bud_buttons),
         parse_mode="HTML"
     )
 
-@router.callback_query(DemoData.filter(F.a == "bud"))
-async def on_budget(cb: CallbackQuery, callback_data: DemoData) -> None:
+@router.callback_query(F.data.startswith("demo_bud:"))
+async def on_budget(cb: CallbackQuery) -> None:
     await cb.answer()
-    bot = cb.message.bot
-    cid = cb.message.chat.id
-    s, d, b = callback_data.s, callback_data.d, callback_data.b
+    parts = cb.data.split(":")
+    s, d, b = parts[1], parts[2], parts[3]
     e, n = SERVICES[s]
     blabel, _ = BUDGETS[b]
     name = escape(cb.from_user.full_name)
     username = f"@{escape(cb.from_user.username)}" if cb.from_user.username else "no username"
 
     await mark(cb, f"💰 {blabel}")
-    await pause(bot, cid, 1.0)
-    prog = await progress(bot, cid, ["Packing your request…", "Opening your private chat…", f"Notifying {DEMO_VENDOR}…"])
+    await pause(cb.message, 1.0)
+    prog = await progress(cb.message, ["Packing your request…", "Opening your private chat…", f"Notifying {DEMO_VENDOR}…"])
     with suppress(Exception):
         await prog.edit_text("✅ <b>Request sent!</b>\n\n" f"{DEMO_VENDOR} usually replies within minutes. I'll message you here the second they do. 🔔", parse_mode="HTML")
     await asyncio.sleep(2.2)
 
-    await bot.send_message(
-        cid,
+    await cb.message.answer(
         magic(
             "your vendor group",
             "In that very second, a new <b>Forum Topic</b> appeared in your private vendor group:\n\n"
@@ -203,32 +199,29 @@ async def on_budget(cb: CallbackQuery, callback_data: DemoData) -> None:
         parse_mode="HTML"
     )
     await asyncio.sleep(2.5)
-    await bot.send_message(
-        cid,
+    await cb.message.answer(
         "Now flip the script. 🔄\nYou're the vendor, and the client is waiting…",
-        reply_markup=kb([("💼 Reply as the vendor", DemoData(a="offer", s=s, d=d, b=b))]),
+        reply_markup=kb([("💼 Reply as the vendor", f"demo_offer:{s}:{d}:{b}")]),
         parse_mode="HTML"
     )
 
-@router.callback_query(DemoData.filter(F.a == "offer"))
-async def on_offer(cb: CallbackQuery, callback_data: DemoData) -> None:
+@router.callback_query(F.data.startswith("demo_offer:"))
+async def on_offer(cb: CallbackQuery) -> None:
     await cb.answer()
-    bot = cb.message.bot
-    cid = cb.message.chat.id
-    s, d, b = callback_data.s, callback_data.d, callback_data.b
+    parts = cb.data.split(":")
+    s, d, b = parts[1], parts[2], parts[3]
     _, price = BUDGETS[b]
     title, bullets = OFFERS[s]
     name = escape(cb.from_user.first_name)
 
     await mark(cb, "💼 Switching to the vendor's seat")
-    await bot.send_message(
-        cid,
+    await cb.message.answer(
         "🎬 <b>Step 2/4 · The vendor's move</b>\n\n"
         "Inside the topic, you simply tap the pinned <b>📝 Make offer</b> button, type the details, and hit Send.\n"
         f"<i>{DEMO_VENDOR} is typing…</i>",
         parse_mode="HTML"
     )
-    await pause(bot, cid, 3.8)
+    await pause(cb.message, 3.8)
 
     caption = (
         f"✨ <b>Official Offer for {name}</b>\n"
@@ -240,12 +233,12 @@ async def on_offer(cb: CallbackQuery, callback_data: DemoData) -> None:
         f"💰 <b>Total: {money(price)}</b>"
     )
     markup = kb(
-        [("✅ I agree", DemoData(a="accept", s=s, d=d, b=b))],
-        [("💬 Ask a question", DemoData(a="ask"))],
+        [("✅ I agree", f"demo_accept:{s}:{d}:{b}")],
+        [("💬 Ask a question", "demo_ask")],
     )
-    await bot.send_message(cid, caption, reply_markup=markup, parse_mode="HTML")
+    await cb.message.answer(caption, reply_markup=markup, parse_mode="HTML")
 
-    await pause(bot, cid, 1.6, ChatAction.UPLOAD_DOCUMENT)
+    await pause(cb.message, 1.6)
     pdf = _pdf_bytes(
         f"{DEMO_VENDOR} - Proposal {TICKET}",
         [f"Prepared for: {cb.from_user.full_name}", "",
@@ -253,15 +246,13 @@ async def on_offer(cb: CallbackQuery, callback_data: DemoData) -> None:
          f"Total: {money(price)}", "",
          "Generated automatically by Trusted Vendors Bot."],
     )
-    await bot.send_document(
-        cid,
+    await cb.message.answer_document(
         BufferedInputFile(pdf, filename=f"Offer-{TICKET[1:]}.pdf"),
         caption="📎 <b>Detailed proposal (PDF)</b>, generated on the fly.",
         parse_mode="HTML"
     )
     await asyncio.sleep(2.0)
-    await bot.send_message(
-        cid,
+    await cb.message.answer(
         magic(
             "what you just did",
             "⚡ <b>A couple of taps</b> produced a branded offer card and a PDF proposal, all delivered inside the client's chat.\n"
@@ -271,42 +262,39 @@ async def on_offer(cb: CallbackQuery, callback_data: DemoData) -> None:
         parse_mode="HTML"
     )
 
-@router.callback_query(DemoData.filter(F.a == "ask"))
-async def on_ask(cb: CallbackQuery, callback_data: DemoData) -> None:
+@router.callback_query(F.data == "demo_ask")
+async def on_ask(cb: CallbackQuery) -> None:
     await cb.answer("💬 In real life this opens a chat. For now, tap “✅ I agree” to continue.", show_alert=True)
 
-@router.callback_query(DemoData.filter(F.a == "accept"))
-async def on_accept(cb: CallbackQuery, callback_data: DemoData) -> None:
+@router.callback_query(F.data.startswith("demo_accept:"))
+async def on_accept(cb: CallbackQuery) -> None:
     await cb.answer("🎉 Accepted!")
-    bot = cb.message.bot
-    cid = cb.message.chat.id
-    s, d, b = callback_data.s, callback_data.d, callback_data.b
+    parts = cb.data.split(":")
+    s, d, b = parts[1], parts[2], parts[3]
     _, price = BUDGETS[b]
 
     await mark(cb, "✅ I agree")
-    await pause(bot, cid, 1.5)
-    await bot.send_message(
-        cid,
+    await pause(cb.message, 1.5)
+    await cb.message.answer(
         "🎬 <b>Step 3/4 · Locking in the deal</b>\n\n"
         "🎉 <b>Wonderful choice!</b>\n"
         f"The total amount is <b>{money(price)}</b>.",
-        reply_markup=kb([(f"💳 Mark as Paid (demo)", DemoData(a="pay", s=s, d=d, b=b))]),
+        reply_markup=kb([(f"💳 Mark as Paid (demo)", f"demo_pay:{s}:{d}:{b}")]),
         parse_mode="HTML"
     )
 
-@router.callback_query(DemoData.filter(F.a == "pay"))
-async def on_pay(cb: CallbackQuery, callback_data: DemoData) -> None:
+@router.callback_query(F.data.startswith("demo_pay:"))
+async def on_pay(cb: CallbackQuery) -> None:
     await cb.answer()
-    bot = cb.message.bot
-    cid = cb.message.chat.id
-    s, d, b = callback_data.s, callback_data.d, callback_data.b
+    parts = cb.data.split(":")
+    b = parts[3]
     _, price = BUDGETS[b]
     fee = price * COMMISSION_PCT // 100
     payout = price - fee
     name = escape(cb.from_user.full_name)
 
     await mark(cb, "💳 Paying…")
-    prog = await progress(bot, cid, ["Processing…", "Issuing receipt…"])
+    prog = await progress(cb.message, ["Processing…", "Issuing receipt…"])
     with suppress(Exception):
         await prog.edit_text(
             "🧾 <b>Payment Confirmed</b>\n\n"
@@ -317,8 +305,7 @@ async def on_pay(cb: CallbackQuery, callback_data: DemoData) -> None:
         )
     await asyncio.sleep(2.4)
 
-    await bot.send_message(
-        cid,
+    await cb.message.answer(
         magic(
             "deal closed 🎉",
             "<blockquote>"
@@ -332,18 +319,17 @@ async def on_pay(cb: CallbackQuery, callback_data: DemoData) -> None:
         parse_mode="HTML"
     )
     await asyncio.sleep(3.0)
-    await send_finale(bot, cid)
+    await send_finale(cb.message)
 
-@router.callback_query(DemoData.filter(F.a == "finale"))
-async def on_finale(cb: CallbackQuery, callback_data: DemoData) -> None:
+@router.callback_query(F.data == "demo_finale")
+async def on_finale(cb: CallbackQuery) -> None:
     await cb.answer()
     await mark(cb, "⏭ Skipping ahead")
-    await send_finale(cb.message.bot, cb.message.chat.id)
+    await send_finale(cb.message)
 
-async def send_finale(bot: Bot, chat_id: int) -> None:
-    await pause(bot, chat_id, 1.5)
-    await bot.send_message(
-        chat_id,
+async def send_finale(message: Message) -> None:
+    await pause(message, 1.5)
+    await message.answer(
         "🏁 <b>Step 4/4 · Tour complete!</b>\n\n"
         "Here's what you just experienced:\n\n"
         "✅ A seamless client journey in just a few taps\n"
@@ -355,7 +341,7 @@ async def send_finale(bot: Bot, chat_id: int) -> None:
         "<i>Ready to level up your Telegram sales?</i> 🚀",
         reply_markup=kb(
             [("💬 Contact me to start", CONTACT_URL)],
-            [("🔁 Replay the demo", DemoData(a="restart"))],
+            [("🔁 Replay the demo", "demo_restart")],
         ),
         parse_mode="HTML"
     )
