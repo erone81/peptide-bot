@@ -15,22 +15,14 @@ dp = Dispatcher()
 ADMIN_IDS = [8912162282]
 ADMIN_USERNAMES = ["g3orgel", "georgel"]
 
-# ==========================================
-# МАПВАНЕ НА ВЕНДОРСКИ ЮЗЪРНЕЙМИ КЪМ КЛЮЧ
-# ==========================================
 VENDOR_ACCOUNTS = {
     "novapure_li": "novapure",
-    # "liao_username": "tidetron",
-    # "handom_username": "handom"
 }
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = "/app/data" if os.path.exists("/app/data") else BASE_DIR
 DATA_PATH = os.path.join(DATA_DIR, "routes.json")
 
-# ==========================================
-# КОНФИГУРАЦИЯ НА ВЕНДОРИТЕ И ОТДЕЛНИТЕ ГРУПИ
-# ==========================================
 VENDORS = {
     "tidetron": {
         "name": "1. TIDETRON PEPTIDES",
@@ -152,18 +144,13 @@ topic_buyers = {}
 topic_vendors = {}
 buyer_active_vendor = {}
 buyer_names = {}
+buyer_numbers = {}
 pending = {}
 locked_offers = []
 next_offer_number = 1001
 next_buyer_number = 1
 proof_topic_id = None
 waiting_offer_text = {}
-waiting_total = {}
-pending_connect_thread = None
-
-PRICE_REGEX = (
-    r"(?i)(?:total|amount|price|final|sum|cost|pay|合计|总计|总价|金额|最终价)\s*[:：]?\s*\$?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)"
-)
 
 def is_admin(user: types.User) -> bool:
     if not user:
@@ -194,25 +181,28 @@ def vendor_list_keyboard():
         buttons.append([InlineKeyboardButton(text=f"✅ {data['chat_name']}", callback_data=f"open_vendor:{key}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def confirm_keyboard(key):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Confirm", callback_data=f"yes:{key}")],
-        [InlineKeyboardButton(text="✏ Change something", callback_data=f"no:{key}")],
-    ])
-
 def make_offer_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📝 Make offer", callback_data="start_make_offer")]
     ])
 
-def paid_keyboard(key):
+def offer_preview_keyboard(key):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Deal Complete & Paid", callback_data=f"paid:{key}")]
+        [
+            InlineKeyboardButton(text="🚀 Send", callback_data=f"offer_send:{key}"),
+            InlineKeyboardButton(text="✏ Edit", callback_data=f"offer_edit:{key}"),
+            InlineKeyboardButton(text="❌ Cancel", callback_data=f"offer_cancel:{key}")
+        ]
     ])
 
-def mark_comm_keyboard(code):
+def confirm_keyboard(key):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"🟢 Mark Paid ({code})", callback_data=f"mark_paid:{code}")]
+        [InlineKeyboardButton(text="✅ I agree", callback_data=f"yes:{key}")],
+    ])
+
+def paid_keyboard(key):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Paid", callback_data=f"paid:{key}")]
     ])
 
 def public_vendor_keyboard(vendor_key: str):
@@ -225,9 +215,9 @@ def public_vendor_keyboard(vendor_key: str):
         )]
     ])
 
-def topic_name(user: types.User, num: int) -> str:
+def topic_name(user: types.User, num: int, icon: str = "⏳") -> str:
     who = user.username or user.full_name or "Buyer"
-    return f"#{num} · {who}"[:120]
+    return f"{icon} #{num} · {who}"[:120]
 
 def money(value):
     return f"{value:.2f} USD"
@@ -237,6 +227,7 @@ def commission_of(total):
 
 def clean_number(raw):
     text = (raw or "").strip().replace(" ", "")
+    text = re.sub(r"[\$€£]|usd|eur|дол.*|bucks", "", text, flags=re.IGNORECASE).strip()
     if re.fullmatch(r"[0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,2})?", text):
         text = text.replace(",", "")
     elif re.fullmatch(r"[0-9]+,[0-9]{1,2}", text):
@@ -249,23 +240,6 @@ def clean_number(raw):
     except ValueError:
         return None
 
-def parse_only_number(text):
-    if not text:
-        return None
-    cleaned = text.strip().lower()
-    cleaned = re.sub(r"[\$€£]|usd|eur|дол.*|bucks", "", cleaned).strip()
-    return clean_number(cleaned)
-
-def detect_total(text):
-    text = text or ""
-    found = re.findall(PRICE_REGEX, text)
-    if found:
-        return clean_number(found[-1])
-    standalone = re.findall(r"(?i)(?:^\s*\$?\s*([0-9]+(?:\.[0-9]{1,2})?)\s*(?:\$|usd)?\s*$)", text, re.MULTILINE)
-    if standalone:
-        return clean_number(standalone[-1])
-    return None
-
 def leaks_commission(text):
     low = (text or "").lower()
     return "commission" in low or "комисион" in low
@@ -273,13 +247,6 @@ def leaks_commission(text):
 def buyer_label(user: types.User) -> str:
     username = f"@{user.username}" if user.username else "no username"
     return f"{user.full_name} ({username})"
-
-def buyer_offer_text(offer):
-    text = (offer.get("text") or "").strip()
-    detected = detect_total(text)
-    if detected is not None and abs(detected - float(offer["total"])) < 0.001:
-        return text
-    return f"{text}\n\nTotal: {money(offer['total'])}"
 
 def save_data():
     try:
@@ -291,6 +258,7 @@ def save_data():
                     "topic_vendors": topic_vendors,
                     "buyer_active_vendor": buyer_active_vendor,
                     "buyer_names": buyer_names,
+                    "buyer_numbers": buyer_numbers,
                     "pending": pending,
                     "locked_offers": locked_offers,
                     "next_offer_number": next_offer_number,
@@ -305,10 +273,9 @@ def save_data():
         print(f"Error saving data: {e}")
 
 def load_data():
-    global buyer_topics, topic_buyers, topic_vendors, buyer_active_vendor, buyer_names
+    global buyer_topics, topic_buyers, topic_vendors, buyer_active_vendor, buyer_names, buyer_numbers
     global pending, locked_offers, next_offer_number, next_buyer_number, proof_topic_id
     
-    # АВТОМАТИЧНО ЗАНУЛЯВАНЕ ПРИ СТАРТИРАНЕ (ЗА ТЕСТВАНЕ)
     if os.path.exists(DATA_PATH):
         try:
             os.remove(DATA_PATH)
@@ -325,6 +292,7 @@ def load_data():
         topic_vendors = {int(k): v for k, v in data.get("topic_vendors", {}).items()}
         buyer_active_vendor = {int(k): v for k, v in data.get("buyer_active_vendor", {}).items()}
         buyer_names = {int(k): v for k, v in data.get("buyer_names", {}).items()}
+        buyer_numbers = {int(k): v for k, v in data.get("buyer_numbers", {}).items()}
         pending = data.get("pending", {})
         locked_offers = data.get("locked_offers", [])
         next_offer_number = int(data.get("next_offer_number", 1001))
@@ -332,11 +300,6 @@ def load_data():
         proof_topic_id = data.get("proof_topic_id")
     except Exception as e:
         print(f"Error loading routes.json: {e}")
-
-def replace_open_offers(buyer_id):
-    for offer in pending.values():
-        if offer.get("buyer_id") == buyer_id and offer.get("status") in ("draft", "need_total", "waiting"):
-            offer["status"] = "replaced"
 
 async def send_vendor_welcome(message: types.Message, vendor_key: str):
     v = VENDORS.get(vendor_key)
@@ -356,21 +319,11 @@ async def send_vendor_welcome(message: types.Message, vendor_key: str):
         )
 
     catalogs = v.get("catalogs", [])
-    for idx, cat_path in enumerate(catalogs):
+    for cat_path in catalogs:
         if os.path.exists(cat_path):
-            if vendor_key == "novapure":
-                if idx == 0:
-                    caption_text = "💰 <b>Peptides Price List (PDF)</b>"
-                elif idx == 1:
-                    caption_text = "💰 <b>Oils Price List (PDF)</b>"
-                else:
-                    caption_text = "💰 <b>Tablets Price List (PDF)</b>"
-            else:
-                caption_text = "💰 <b>Price List (PDF)</b>"
-            
             await message.answer_document(
                 FSInputFile(cat_path),
-                caption=caption_text,
+                caption="💰 <b>Price List (PDF)</b>",
                 parse_mode="HTML",
             )
     
@@ -389,16 +342,16 @@ async def proof_thread(sales_group_id):
     save_data()
     return proof_topic_id
 
-async def send_confirm_card(key, offer):
-    offer["status"] = "waiting"
-    save_data()
-    await bot.send_message(
-        offer["buyer_id"],
-        "Please confirm this offer:\n\n"
-        f"{buyer_offer_text(offer)}\n\n"
-        "Press Confirm only if everything is correct.",
-        reply_markup=confirm_keyboard(key),
-    )
+async def update_topic_icon_status(chat_id, thread_id, buyer_id, icon):
+    num = buyer_numbers.get(buyer_id, 1)
+    # Get user object or name
+    who = buyer_names.get(buyer_id, "Buyer")
+    # clean name if formatted as "Full Name (@username)"
+    new_name = f"{icon} #{num} · {who}"[:120]
+    try:
+        await bot.edit_forum_topic(chat_id=chat_id, message_thread_id=thread_id, name=new_name)
+    except Exception as e:
+        print("Failed to update topic icon:", e)
 
 @dp.message(CommandStart())
 async def start_handler(message: types.Message, command: CommandObject):
@@ -418,185 +371,6 @@ async def open_vendor_callback(callback: types.CallbackQuery):
     vendor_key = callback.data.split(":", 1)[1]
     await send_vendor_welcome(callback.message, vendor_key)
 
-@dp.message(Command("commission"))
-async def commission_stats(message: types.Message):
-    if not can_view_commission(message.from_user):
-        return
-    
-    user_vendor = get_vendor_key_for_user(message.from_user)
-    
-    if user_vendor:
-        filtered_offers = [o for o in locked_offers if o.get("vendor_key") == user_vendor]
-        vendor_title = VENDORS.get(user_vendor, {}).get("chat_name", user_vendor.upper())
-        header_title = f"📊 <b>COMMISSION &amp; SALES STATS ({vendor_title})</b>"
-    else:
-        filtered_offers = locked_offers
-        header_title = "📊 <b>COMMISSION &amp; SALES STATS (ALL VENDORS)</b>"
-
-    total_sales = sum(o.get("total", 0) for o in filtered_offers)
-    total_comm = sum(o.get("commission", 0) for o in filtered_offers)
-    unpaid_comm = sum(o.get("commission", 0) for o in filtered_offers if not o.get("paid", False))
-    paid_comm = sum(o.get("commission", 0) for o in filtered_offers if o.get("paid", False))
-    
-    summary = (
-        f"{header_title}\n\n"
-        f"📦 Total Locked Offers: {len(filtered_offers)}\n"
-        f"💰 Total Sales Volume: {money(total_sales)}\n"
-        f"💎 Total Commission (10%): {money(total_comm)}\n"
-        f"✅ Already Paid: {money(paid_comm)}\n"
-        f"⏳ <b>Remaining Due (Unpaid):</b> {money(unpaid_comm)}\n\n"
-        f"━━━━━━━━━━━━\n"
-        f"📌 <b>UNPAID DEALS BREAKDOWN:</b>"
-    )
-    
-    try:
-        await message.answer(summary, parse_mode="HTML", message_thread_id=message.message_thread_id)
-    except Exception:
-        await message.answer(summary, parse_mode="HTML")
-
-    unpaid_list = [o for o in filtered_offers if not o.get("paid", False)]
-    if not unpaid_list:
-        await message.answer("🎉 No unpaid commissions! All deals are settled.", message_thread_id=message.message_thread_id)
-        return
-
-    admin_user = is_admin(message.from_user)
-
-    for o in unpaid_list:
-        code = o.get("code")
-        buyer_name = buyer_names.get(o.get("buyer_id"), "Buyer")
-        total = o.get("total", 0)
-        comm = o.get("commission", 0)
-        v_key = o.get("vendor_key", "tidetron")
-        v_name = VENDORS.get(v_key, {}).get("chat_name", "")
-        
-        txt = (
-            f"🏷️ <b>Offer:</b> {code} | 🏢 <b>Vendor:</b> {v_name}\n"
-            f"👤 <b>Buyer:</b> {buyer_name}\n"
-            f"💰 <b>Total:</b> {money(total)} | 💎 <b>Commission:</b> <b>{money(comm)}</b>"
-        )
-        try:
-            if admin_user:
-                await message.answer(txt, parse_mode="HTML", message_thread_id=message.message_thread_id, reply_markup=mark_comm_keyboard(code))
-            else:
-                await message.answer(txt, parse_mode="HTML", message_thread_id=message.message_thread_id)
-        except Exception:
-            if admin_user:
-                await message.answer(txt, parse_mode="HTML", reply_markup=mark_comm_keyboard(code))
-            else:
-                await message.answer(txt, parse_mode="HTML")
-
-@dp.callback_query(F.data.startswith("mark_paid:"))
-async def mark_commission_paid(callback: types.CallbackQuery):
-    if not is_admin(callback.from_user):
-        await callback.answer("Only the administrator can mark commissions as paid.", show_alert=True)
-        return
-
-    code = callback.data.split(":", 1)[1]
-    found = False
-    for o in locked_offers:
-        if o.get("code") == code:
-            o["paid"] = True
-            found = True
-            break
-    
-    if found:
-        save_data()
-        await callback.answer(f"Offer {code} commission marked as PAID!")
-        await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.reply(f"✅ Commission for offer <b>{code}</b> has been successfully marked as <b>PAID</b>.", parse_mode="HTML")
-    else:
-        await callback.answer("Offer not found.", show_alert=True)
-
-@dp.message(Command("post_directory_info"))
-async def post_directory_info_handler(message: types.Message):
-    if not is_admin(message.from_user):
-        return
-    
-    text = (
-        "🛡️ <b>VERIFIED VENDORS DIRECTORY</b>\n\n"
-        "Here you will find rigorously vetted and continuously monitored peptide manufacturers. Every supplier listed meets our strict standards for quality, reliability, and secure fulfillment.\n\n"
-        "━━━━━━━━━━━━\n\n"
-        "📌 <b>HOW TO GET STARTED:</b>\n\n"
-        "<b>1️⃣ Select a Vendor</b>\n"
-        "Browse our verified partners below and review their capabilities and terms.\n\n"
-        "<b>2️⃣ Open Direct Chat</b>\n"
-        "Tap the button beneath each vendor profile to launch an official, secure session.\n\n"
-        "<b>3️⃣ Review Catalog &amp; Policies</b>\n"
-        "Receive the complete batch price list, warehouse stock, and delivery guidelines automatically.\n\n"
-        "<b>4️⃣ Inquire &amp; Order</b>\n"
-        "Discuss orders, confirm custom quantities, and complete transactions directly with the vendor team.\n\n"
-        "━━━━━━━━━━━━\n\n"
-        "🔒 <i>Zero-compromise vetting. Only manufacturers maintaining an unblemished track record and verified lab compliance are listed here.</i>"
-    )
-    try:
-        await bot.send_message(
-            message.chat.id,
-            text,
-            message_thread_id=message.message_thread_id,
-            parse_mode="HTML"
-        )
-    except Exception as e:
-        print("Error sending directory info:", e)
-    
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-@dp.message(Command("post_vendor"))
-async def post_vendor_card(message: types.Message, command: CommandObject):
-    if not is_admin(message.from_user):
-        return
-    
-    vendor_key = (command.args or "tidetron").strip().lower()
-    v = VENDORS.get(vendor_key)
-    if not v:
-        await message.reply(f"Vendor '{vendor_key}' not found.")
-        return
-
-    banner_file = v["banner_path"]
-    thread_id = message.message_thread_id
-
-    try:
-        if os.path.exists(banner_file):
-            await bot.send_photo(
-                message.chat.id,
-                FSInputFile(banner_file),
-                caption=v["image_caption"],
-                parse_mode="HTML",
-                message_thread_id=thread_id
-            )
-        
-        await bot.send_message(
-            message.chat.id,
-            v["post_details"],
-            reply_markup=public_vendor_keyboard(vendor_key),
-            parse_mode="HTML",
-            message_thread_id=thread_id
-        )
-    except Exception as e:
-        print("Error posting vendor card:", e)
-        await message.reply(f"Failed to post card: {e}")
-
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-@dp.message(Command("connect"))
-async def connect_topic(message: types.Message):
-    global pending_connect_thread
-    if message.chat.type == "private":
-        return
-    if not is_admin(message.from_user):
-        return
-    thread_id = message.message_thread_id
-    if not thread_id or thread_id == 1:
-        await message.answer("Open the buyer topic and write /connect there.")
-        return
-    pending_connect_thread = thread_id
-    await message.answer("Waiting for the buyer.\n\nThe buyer must send any message to the bot.\nThen write the offer in this topic.")
-
 @dp.callback_query(F.data == "start_make_offer")
 async def make_offer_clicked(callback: types.CallbackQuery):
     await callback.answer()
@@ -604,30 +378,109 @@ async def make_offer_clicked(callback: types.CallbackQuery):
     if not thread_id or thread_id not in topic_buyers:
         return
     
-    waiting_offer_text[thread_id] = True
+    waiting_offer_text[thread_id] = "description"
     await callback.message.answer(
-        "✍️ <b>Write the full offer text:</b>\n"
-        "Include items, quantities, and total amount (e.g. 150).\n\n"
-        "请在此写下完整的报价明细：",
+        "✍️ <b>Describe the offer exactly as the client should see it:</b>\n"
+        "(Send description as text)",
         parse_mode="HTML"
     )
 
-@dp.callback_query(F.data.startswith("yes:"))
-async def confirm_offer(callback: types.CallbackQuery):
+@dp.callback_query(F.data.startswith("offer_send:"))
+async def offer_send_callback(callback: types.CallbackQuery):
     global next_offer_number
     key = callback.data.split(":", 1)[1]
     offer = pending.get(key)
-    if not offer or callback.from_user.id != offer.get("buyer_id") or offer.get("status") != "waiting":
+    if not offer or offer.get("status") != "draft":
+        await callback.answer("Offer not available.", show_alert=True)
+        return
+
+    code = f"ORD-{next_offer_number}"
+    next_offer_number += 1
+    total = float(offer["total"])
+    
+    offer["status"] = "sent"
+    offer["code"] = code
+    save_data()
+
+    await callback.answer("Offer sent to client!")
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    await callback.message.answer(
+        f"✅ <b>Offer {code} sent successfully!</b>\n"
+        f"Total: {money(total)}",
+        parse_mode="HTML"
+    )
+
+    # Обновяваме иконката на темата на 📦 (изпратена оферта)
+    buyer_id = offer["buyer_id"]
+    vendor_key = offer["vendor_key"]
+    sales_chat_id = VENDORS[vendor_key]["sales_group_id"]
+    thread_id = offer["thread_id"]
+    
+    await update_topic_icon_status(sales_chat_id, thread_id, buyer_id, "📦")
+
+    vendor_name = VENDORS.get(vendor_key, {}).get("chat_name", "Vendor")
+    card_text = (
+        f"<b>Offer {code} from {vendor_name}</b>\n\n"
+        f"{offer['description']}\n\n"
+        f"<b>Total: {money(total)}</b>\n\n"
+        f"Want to change something? Just write to us."
+    )
+    await bot.send_message(
+        buyer_id,
+        card_text,
+        reply_markup=confirm_keyboard(key),
+        parse_mode="HTML"
+    )
+
+@dp.callback_query(F.data.startswith("offer_edit:"))
+async def offer_edit_callback(callback: types.CallbackQuery):
+    key = callback.data.split(":", 1)[1]
+    offer = pending.get(key)
+    if not offer:
+        await callback.answer("Draft not found.", show_alert=True)
+        return
+    thread_id = offer["thread_id"]
+    waiting_offer_text[thread_id] = "description"
+    pending.pop(key, None)
+    save_data()
+    await callback.answer("Restarting offer...")
+    await callback.message.answer(
+        "✍️ <b>Let's start over. Describe the offer:</b>",
+        parse_mode="HTML"
+    )
+
+@dp.callback_query(F.data.startswith("offer_cancel:"))
+async def offer_cancel_callback(callback: types.CallbackQuery):
+    key = callback.data.split(":", 1)[1]
+    offer = pending.get(key)
+    if offer:
+        offer["status"] = "cancelled"
+        save_data()
+    await callback.answer("Offer cancelled.")
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await callback.message.answer("❌ Offer draft cancelled.")
+
+@dp.callback_query(F.data.startswith("yes:"))
+async def confirm_offer_buyer(callback: types.CallbackQuery):
+    key = callback.data.split(":", 1)[1]
+    offer = pending.get(key)
+    if not offer or callback.from_user.id != offer.get("buyer_id") or offer.get("status") != "sent":
         await callback.answer("This offer is no longer active.", show_alert=True)
         return
 
     await callback.answer("Confirmed")
-    code = f"TPVH-{next_offer_number}"
-    next_offer_number += 1
     total = float(offer["total"])
     commission = commission_of(total)
+    code = offer["code"]
+    
     offer["status"] = "locked"
-    offer["code"] = code
     
     locked_item = {
         "code": code,
@@ -635,7 +488,7 @@ async def confirm_offer(callback: types.CallbackQuery):
         "commission": commission,
         "buyer_id": offer["buyer_id"],
         "vendor_key": offer.get("vendor_key", "tidetron"),
-        "text": offer["text"],
+        "text": offer["description"],
         "paid": False
     }
     locked_offers.append(locked_item)
@@ -646,16 +499,24 @@ async def confirm_offer(callback: types.CallbackQuery):
     except Exception:
         pass
         
-    await callback.message.answer(f"Offer {code} is confirmed.\n\n{buyer_offer_text(offer)}\n\nThis is the final offer.")
+    await callback.message.answer(
+        f"✅ <b>Offer confirmed!</b>\n\n"
+        f"Offer {code} · {money(total)}\n\n"
+        f"Thank you!",
+        parse_mode="HTML"
+    )
+
+    buyer_id = offer["buyer_id"]
+    await bot.send_message(buyer_id, "Offer confirmed.")
     
-    sales_chat_id = offer.get("chat_id", VENDORS[offer.get("vendor_key", "tidetron")]["sales_group_id"])
-    
+    sales_chat_id = offer.get("chat_id")
     await bot.send_message(
         sales_chat_id,
-        f"Locked.\n\nOffer: {code}\nTotal: {money(total)}\nCommission due: {money(commission)}\n\n"
-        f"⏳ Waiting for payment confirmation...",
+        f"🔒 <b>{code} confirmed · {money(total)}</b>\n"
+        f"Send the payment link or details to the client here in this topic.",
         message_thread_id=offer["thread_id"],
-        reply_markup=paid_keyboard(key)
+        reply_markup=paid_keyboard(key),
+        parse_mode="HTML"
     )
 
 @dp.callback_query(F.data.startswith("paid:"))
@@ -663,61 +524,57 @@ async def mark_offer_paid(callback: types.CallbackQuery):
     key = callback.data.split(":", 1)[1]
     offer = pending.get(key)
     if not offer or offer.get("status") != "locked":
-        await callback.answer("This offer is not locked or already processed.", show_alert=True)
+        await callback.answer("Offer not locked or already processed.", show_alert=True)
         return
 
     code = offer.get("code")
     total = float(offer["total"])
     commission = commission_of(total)
 
+    offer["status"] = "completed"
+    
+    for lo in locked_offers:
+        if lo.get("code") == code:
+            lo["completed"] = True
+            break
+
     save_data()
-    await callback.answer("Deal marked as Paid & Completed!")
+    await callback.answer("Deal completed!")
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
     
     await callback.message.answer(
-        f"✅ <b>DEAL PAID & COMPLETED</b>\n"
-        f"Offer: {code}\nTotal: {money(total)}\n\n"
-        f"<i>Chat remains open for tracking/shipping inquiries.</i>",
+        f"✅ <b>MARKED AS PAID & COMPLETED</b>\n"
+        f"Offer: {code}\nTotal: {money(total)}",
         parse_mode="HTML"
     )
 
+    buyer_id = offer["buyer_id"]
+    vendor_key = offer.get("vendor_key", "tidetron")
+    sales_chat_id = VENDORS[vendor_key]["sales_group_id"]
+    thread_id = offer["thread_id"]
+
+    # Обновяваме иконката на темата на 🟢 (платено и завършено)
+    await update_topic_icon_status(sales_chat_id, thread_id, buyer_id, "🟢")
+
+    await bot.send_message(buyer_id, "Payment confirmed. Thank you!")
+
     try:
-        vendor_key = offer.get("vendor_key", "tidetron")
-        sales_chat_id = VENDORS[vendor_key]["sales_group_id"]
         thread = await proof_thread(sales_chat_id)
-        who = buyer_names.get(offer["buyer_id"], "Unknown buyer")
+        who = buyer_names.get(buyer_id, "Unknown buyer")
         vendor_name = VENDORS.get(vendor_key, {}).get("chat_name", "Vendor")
         await bot.send_message(
             sales_chat_id,
-            f"🟢 <b>PAID &amp; COMPLETED OFFER</b>\n\n"
+            f"🟢 <b>COMPLETED DEAL</b>\n\n"
             f"Offer: {code}\nVendor: {vendor_name}\nBuyer: {who}\n"
-            f"Total: {money(total)}\nCommission due: {money(commission)}\n\n{offer['text']}",
+            f"Total: {money(total)}\nCommission (10%): {money(commission)}\n\n{offer['description']}",
             message_thread_id=thread,
             parse_mode="HTML"
         )
     except Exception as e:
         print("Error sending to proof thread:", e)
-
-@dp.callback_query(F.data.startswith("no:"))
-async def change_offer(callback: types.CallbackQuery):
-    key = callback.data.split(":", 1)[1]
-    offer = pending.get(key)
-    if not offer or callback.from_user.id != offer.get("buyer_id") or offer.get("status") != "waiting":
-        await callback.answer("This offer is no longer active.", show_alert=True)
-        return
-    await callback.answer("Nothing was saved")
-    offer["status"] = "changed"
-    save_data()
-    try:
-        await callback.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    await callback.message.answer("Nothing was saved. Write what you want to change.")
-    target_chat = offer.get("chat_id", VENDORS[offer.get("vendor_key", "tidetron")]["sales_group_id"])
-    await bot.send_message(target_chat, "The buyer wants a change. Nothing was saved.", message_thread_id=offer["thread_id"])
 
 @dp.message(F.chat.type.in_({"group", "supergroup"}), ~F.text.startswith("/"))
 async def from_group_media_and_text(message: types.Message):
@@ -732,150 +589,95 @@ async def from_group_media_and_text(message: types.Message):
 
     buyer_id = topic_buyers[thread_id]
     vendor_key = topic_vendors.get(thread_id, "tidetron")
-    caption_text = message.caption or message.text or ""
+    text = message.text or message.caption or ""
 
-    if waiting_offer_text.get(thread_id):
-        waiting_offer_text.pop(thread_id, None)
+    if waiting_offer_text.get(thread_id) == "description":
+        if leaks_commission(text):
+            await message.reply("Do not write commission in the offer.")
+            return
         
-        if leaks_commission(caption_text):
-            await message.reply("Do not write the commission in the offer. Send it again.")
-            return
-
-        detected = detect_total(caption_text)
-        replace_open_offers(buyer_id)
-        key = secrets.token_hex(4)
-
-        if detected is not None:
-            pending[key] = {
-                "status": "need_total",
-                "text": caption_text,
-                "total": detected,
-                "buyer_id": buyer_id,
-                "thread_id": thread_id,
-                "chat_id": message.chat.id,
-                "vendor_key": vendor_key
-            }
-            waiting_total[thread_id] = key
-            save_data()
-
-            await bot.send_message(
-                message.chat.id,
-                f"💡 <b>Detected Total Amount: {money(detected)}</b>\n"
-                "Is this the correct amount?\n"
-                "• Type <b>yes</b> (or send the number) to confirm.\n"
-                "• Or type the correct amount in USD (e.g. 150):",
-                message_thread_id=thread_id,
-                parse_mode="HTML"
-            )
-            return
-        else:
-            pending[key] = {
-                "status": "need_total",
-                "text": caption_text,
-                "total": None,
-                "buyer_id": buyer_id,
-                "thread_id": thread_id,
-                "chat_id": message.chat.id,
-                "vendor_key": vendor_key
-            }
-            waiting_total[thread_id] = key
-            save_data()
-
-            await bot.send_message(
-                message.chat.id,
-                "💰 <b>Total amount not detected.</b>\n"
-                "Please type the final total amount in USD (e.g. 150):\n\n"
-                "请输入最终总金额（USD）：",
-                parse_mode="HTML"
-            )
-            return
-
-    waiting_key = waiting_total.get(thread_id)
-    if waiting_key and message.text:
-        offer = pending.get(waiting_key)
-        text_lower = message.text.strip().lower()
-        
-        if offer and offer.get("total") is not None and text_lower in ("yes", "да", "ok", "confirm"):
-            waiting_total.pop(thread_id, None)
-            await send_confirm_card(waiting_key, offer)
-            await message.answer(f"✅ Formal offer sent to buyer for confirmation.\nTotal: {money(offer['total'])}")
-            return
-            
-        total = parse_only_number(message.text)
-        if total is not None and offer and offer.get("status") == "need_total":
-            waiting_total.pop(thread_id, None)
-            offer["total"] = total
-            await send_confirm_card(waiting_key, offer)
-            await message.answer(f"✅ Formal offer sent to buyer for confirmation.\nTotal: {money(total)}")
-            return
-        else:
-            await message.reply("Please write a valid number in USD (e.g. 150):\n请输入有效金额数字：")
-            return
-
-    if leaks_commission(caption_text):
-        await message.reply("Do not write the commission in the message.")
+        waiting_offer_text[thread_id] = {"desc": text}
+        await message.answer(
+            "💰 <b>Total amount in USD? Numbers only.</b>\n"
+            "(For example: 350 or 350.50)",
+            parse_mode="HTML"
+        )
         return
 
-    # Препращаме съобщението към клиента
+    state_data = waiting_offer_text.get(thread_id)
+    if isinstance(state_data, dict) and "desc" in state_data and "total" not in state_data:
+        amount = clean_number(text)
+        if amount is None:
+            await message.reply("Please send a valid number, for example 350 or 350.50.")
+            return
+
+        state_data["total"] = amount
+        waiting_offer_text.pop(thread_id, None)
+
+        key = secrets.token_hex(4)
+        pending[key] = {
+            "status": "draft",
+            "description": state_data["desc"],
+            "total": amount,
+            "buyer_id": buyer_id,
+            "thread_id": thread_id,
+            "chat_id": message.chat.id,
+            "vendor_key": vendor_key
+        }
+        save_data()
+
+        await message.answer(
+            f"📋 <b>Offer Preview:</b>\n\n"
+            f"{state_data['desc']}\n\n"
+            f"<b>Total: {money(amount)}</b>",
+            reply_markup=offer_preview_keyboard(key),
+            parse_mode="HTML"
+        )
+        return
+
+    if leaks_commission(text):
+        await message.reply("Do not write commission in the message.")
+        return
+
     vendor_name = VENDORS.get(vendor_key, {}).get("chat_name", "Vendor")
     header = f"{vendor_name}:\n\n"
     try:
         if message.photo:
-            await bot.send_photo(
-                buyer_id,
-                message.photo[-1].file_id,
-                caption=f"{header}{message.caption}" if message.caption else None
-            )
+            await bot.send_photo(buyer_id, message.photo[-1].file_id, caption=f"{header}{message.caption}" if message.caption else None)
         elif message.document:
-            box = message.document
-            await bot.send_document(
-                buyer_id,
-                box.file_id,
-                caption=f"{header}{message.caption}" if message.caption else None
-            )
+            await bot.send_document(buyer_id, message.document.file_id, caption=f"{header}{message.caption}" if message.caption else None)
         elif message.text:
             await bot.send_message(buyer_id, f"{header}{message.text}")
     except Exception:
-        await message.reply("The message was not delivered to the buyer.")
+        await message.reply("Failed to deliver message to buyer.")
 
 @dp.message(F.chat.type == "private")
 async def from_buyer_media_and_text(message: types.Message):
-    global pending_connect_thread, next_buyer_number
+    global next_buyer_number
     if message.text and message.text.startswith("/"):
         return
-    # ВРЕМЕННО ИЗКЛЮЧЕНА АДМИН ПРОВЕРКА ЗА ТЕСТ
-    # if is_admin(message.from_user):
-    #     return
 
     buyer_id = message.from_user.id
-    buyer_names[buyer_id] = buyer_label(message.from_user)
+    buyer_names[buyer_id] = message.from_user.full_name or "Buyer"
 
     vendor_key = buyer_active_vendor.get(buyer_id, "tidetron")
     v = VENDORS.get(vendor_key, VENDORS["tidetron"])
     target_group_id = v["sales_group_id"]
-
-    if pending_connect_thread:
-        thread_id = pending_connect_thread
-        pending_connect_thread = None
-        buyer_topics[buyer_id] = thread_id
-        topic_buyers[thread_id] = buyer_id
-        topic_vendors[thread_id] = vendor_key
-        save_data()
-        await bot.send_message(target_group_id, "Linked.\nWrite the offer in this topic.", message_thread_id=thread_id)
 
     thread_id = buyer_topics.get(buyer_id)
     if not thread_id:
         try:
             current_num = next_buyer_number
             next_buyer_number += 1
-            topic = await bot.create_forum_topic(target_group_id, topic_name(message.from_user, current_num))
+            buyer_numbers[buyer_id] = current_num
+            
+            topic = await bot.create_forum_topic(target_group_id, topic_name(message.from_user, current_num, "⏳"))
             thread_id = topic.message_thread_id
             buyer_topics[buyer_id] = thread_id
             topic_buyers[thread_id] = buyer_id
             topic_vendors[thread_id] = vendor_key
             save_data()
             
-            # Създаваме и закачаме постоянен бутон Make offer горе в темата
             panel = await bot.send_message(
                 target_group_id,
                 f"Client #{current_num} for {v['chat_name']}: {buyer_label(message.from_user)}\nUse the button below to send an offer.",
@@ -896,8 +698,7 @@ async def from_buyer_media_and_text(message: types.Message):
     if message.photo:
         await bot.send_photo(target_group_id, message.photo[-1].file_id, caption=message.caption, message_thread_id=thread_id)
     elif message.document:
-        box = message.document
-        await bot.send_document(target_group_id, box.file_id, caption=message.caption, message_thread_id=thread_id)
+        await bot.send_document(target_group_id, message.document.file_id, caption=message.caption, message_thread_id=thread_id)
     elif message.text:
         await bot.send_message(target_group_id, message.text, message_thread_id=thread_id)
 
